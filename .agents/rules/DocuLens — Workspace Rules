@@ -1,0 +1,37 @@
+# DocuLens rules
+
+AI financial-document system: upload -> parse/OCR -> LLM extract -> deterministic validate -> human review -> reconcile -> search. 4-day take-home. Not a chatbot.
+Read on demand: `docs/PRD.md` (source of truth), `docs/ARCHITECTURE.md` (modules, job system, defaults for PRD gaps), `docs/ERD.md`. If code and PRD disagree, stop and ask.
+
+## Stack (fixed, do not add)
+FastAPI, Pydantic v2, SQLAlchemy 2 sync, psycopg3, Alembic. PostgreSQL + pgvector + pg_trgm only (no Redis, Celery, vector DB). PyMuPDF, pytesseract, pandas/openpyxl/xlrd. PyJWT. React + TS + Vite + Tailwind + shadcn + TanStack Query; API types via openapi-typescript, never hand-written.
+
+## Hard rules
+1. Layers: `api` -> `modules/*/service` -> `db/repositories`. No logic in routers. No SQL outside repositories.
+2. OCR, LLM, embeddings, spreadsheet parsing run only in the worker via `run_job(job_id)`, never in request handlers.
+3. Pipeline stages are idempotent: replace own output in one transaction.
+4. LLM/OCR/embedding sit behind Protocols with Fake* impls. Prompts only in `modules/extraction/prompts/`.
+5. The LLM never decides validation, duplicates, reconciliation, auth, status, or approval.
+6. Money is Decimal/NUMERIC, never float. Missing data is null, never guessed. Validate LLM output against the schema.
+7. `processing_status` and `review_status` are separate. Embedding failure never changes `processing_status`.
+8. Edits write `document_corrections` + `audit_logs`; originals stay in `extraction_metadata`.
+9. Search: authorization + filters in SQL before ranking; only chunks of the configured `embedding_model`; hybrid = RRF, falls back to keyword with a `warning`.
+10. `reconciliation` and `validation` read persisted results; never import `extraction` or `processing`.
+11. Tunables in `core/config.py`; no secrets in repo.
+12. Response envelope `{success, message, data, error}`; correct 401/403.
+13. Uploaded docs are untrusted: text goes in the user message, safe storage paths only.
+
+## RBAC (temporary)
+Real JWT login, seeded roles + admin. Every route keeps `Depends(require_permission(...))`. `RBAC_ENFORCEMENT=false` allows all. Turn on and test before delivery.
+
+## Scope
+Vertical slice first: upload -> job -> parse/OCR -> extract -> validate -> review UI. No PRD section 4.2 or 12 items. No unrequested tables or abstractions; flag scope creep. One module at a time; plan before structural changes.
+
+## Evaluation
+Metrics only from `app/evaluation` on `eval_data/`. Never invent numbers; write "not yet measured".
+
+## Windows cmd.exe
+`.venv\Scripts\activate` | API `uvicorn app.main:app --reload` (in backend) | worker `python -m app.worker` | tests `python -m pytest -q` | `alembic upgrade head` | `set NAME=value`. No bash syntax. Direct or session-mode DB URL for migrations and worker.
+
+## Working
+Inspect repo first. Run tests and report real output. No silent architecture changes. Tests deterministic, fakes only. Concise, runnable code.
