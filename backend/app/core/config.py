@@ -1,46 +1,39 @@
-"""Application configuration via pydantic-settings.
-
-All tunables live here. Environment variables override .env file values.
-"""
-
-from __future__ import annotations
-
-from pydantic import computed_field
+from pathlib import Path
+from typing import List, Union
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+BACKEND_DIR = Path(__file__).resolve().parent.parent.parent
 
 
 class Settings(BaseSettings):
-    """Central configuration sourced from environment / .env file."""
-
     model_config = SettingsConfigDict(
-        env_file=".env",
+        env_file=str(BACKEND_DIR / ".env"),
         env_file_encoding="utf-8",
         extra="ignore",
     )
 
-    # ── Database ──────────────────────────────────────────────────────
-    DATABASE_URL: str
+    DATABASE_URL: str = Field(..., description="PostgreSQL session pooler connection URL")
+    TEST_SCHEMA: str = Field(default="doculens_test", description="Isolated test schema")
+    JWT_SECRET: str = Field(..., description="Secret key for JWT generation and verification")
+    JWT_EXPIRE_MINUTES: int = Field(default=60, description="JWT expiration in minutes")
+    STORAGE_DIR: str = Field(default=str(BACKEND_DIR / "storage"), description="Base storage directory for uploaded files")
+    MAX_UPLOAD_MB: int = Field(default=25, description="Maximum upload size in megabytes")
+    WORKER_POLL_SECONDS: float = Field(default=2.0, description="Worker loop polling interval in seconds")
+    JOB_STALE_MINUTES: int = Field(default=10, description="Minutes after which a running job is deemed stale")
+    PDF_MIN_TEXT_CHARS: int = Field(default=50, description="Minimum characters for text layer before falling back to OCR")
+    OCR_DPI: int = Field(default=300, description="Rasterization DPI for PDF OCR fallback")
+    MAX_PREVIEW_ROWS: int = Field(default=100, description="Max preview rows stored in table parsing")
+    CORS_ORIGINS: Union[str, List[str]] = Field(default=["http://localhost:5173"], description="Allowed CORS origins")
+    ADMIN_EMAIL: str = Field(..., description="Initial admin email")
+    ADMIN_PASSWORD: str = Field(..., description="Initial admin password")
 
-    # ── Worker tunables ───────────────────────────────────────────────
-    WORKER_POLL_INTERVAL_SECONDS: float = 2.0
-    WORKER_MAX_ATTEMPTS: int = 3
-    WORKER_BACKOFF_BASE_SECONDS: float = 5.0
-    WORKER_STUCK_JOB_TIMEOUT_SECONDS: int = 300
-
-    @computed_field  # type: ignore[prop-decorator]
-    @property
-    def sqlalchemy_database_url(self) -> str:
-        """Normalize DATABASE_URL for SQLAlchemy 2 with the psycopg3 driver.
-
-        Translates ``postgresql://`` → ``postgresql+psycopg://`` so that
-        SQLAlchemy explicitly selects the psycopg (v3) driver instead of
-        falling back to psycopg2.
-        """
-        url = str(self.DATABASE_URL)
-        if url.startswith("postgresql://"):
-            return "postgresql+psycopg://" + url[len("postgresql://"):]
-        return url
+    @field_validator("CORS_ORIGINS", mode="before")
+    @classmethod
+    def assemble_cors_origins(cls, v: Union[str, List[str]]) -> List[str]:
+        if isinstance(v, str):
+            return [origin.strip() for origin in v.split(",") if origin.strip()]
+        return v
 
 
-settings = Settings()  # type: ignore[call-arg]
-
+settings = Settings()

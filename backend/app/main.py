@@ -1,17 +1,12 @@
-"""FastAPI application entry point.
-
-Mounts routers, configures error handlers, and exposes the /health
-endpoint. This is the only file that knows about HTTP; business logic
-lives in module services.
-"""
-
 from __future__ import annotations
 
 import logging
 
 from fastapi import FastAPI
-from app.core.responses import APIResponse
-from app.db.session import check_db_health
+from fastapi.middleware.cors import CORSMiddleware
+
+from app.api import auth, documents, health, jobs, users
+from app.core.config import settings
 
 logging.basicConfig(
     level=logging.INFO,
@@ -21,25 +16,19 @@ logging.basicConfig(
 app = FastAPI(
     title="DocuLens API",
     version="0.1.0",
-    description="Intelligent Document Processing Platform",
+    description="AI Document Intelligence System",
 )
 
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=list(settings.CORS_ORIGINS),
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
-@app.get("/health", response_model=APIResponse)
-def health_check() -> APIResponse:
-    """Verify API and database connectivity.
-
-    This is a sync ``def`` route — FastAPI dispatches it to a thread pool
-    so the async event loop is never blocked by the synchronous DB call.
-    """
-    healthy = check_db_health()
-    return APIResponse(
-        success=healthy,
-        message="DocuLens API is healthy" if healthy else "DocuLens API is degraded",
-        data={
-            "status": "healthy" if healthy else "degraded",
-            "database": "connected" if healthy else "disconnected",
-        },
-        error=None if healthy else "Database connection failed",
-    )
-
+app.include_router(health.router, prefix="/api")
+app.include_router(auth.router, prefix="/api")
+app.include_router(users.router, prefix="/api")
+app.include_router(documents.router, prefix="/api")
+app.include_router(jobs.router, prefix="/api")
