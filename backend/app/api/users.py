@@ -2,11 +2,13 @@ from __future__ import annotations
 
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.deps import require_role
+from app.core.errors import ConflictError, NotFoundError
+from app.core.responses import APIResponse, ok
 from app.core.security import hash_password
 from app.db.session import get_db
 from app.models.user import User, UserRole
@@ -19,22 +21,19 @@ router = APIRouter(
 )
 
 
-@router.get("", response_model=list[UserRead])
-def list_users(db: Session = Depends(get_db)) -> list[UserRead]:
+@router.get("", response_model=APIResponse[list[UserRead]])
+def list_users(db: Session = Depends(get_db)) -> APIResponse[list[UserRead]]:
     users = db.execute(select(User).order_by(User.created_at.asc())).scalars().all()
-    return [UserRead.model_validate(u) for u in users]
+    return ok([UserRead.model_validate(u) for u in users])
 
 
-@router.post("", response_model=UserRead, status_code=status.HTTP_201_CREATED)
-def create_user(payload: UserCreate, db: Session = Depends(get_db)) -> UserRead:
+@router.post("", response_model=APIResponse[UserRead], status_code=status.HTTP_201_CREATED)
+def create_user(payload: UserCreate, db: Session = Depends(get_db)) -> APIResponse[UserRead]:
     existing = db.execute(
         select(User).where(User.email == payload.email)
     ).scalar_one_or_none()
     if existing is not None:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="A user with this email already exists",
-        )
+        raise ConflictError("A user with this email already exists")
 
     user = User(
         email=payload.email,
@@ -46,21 +45,18 @@ def create_user(payload: UserCreate, db: Session = Depends(get_db)) -> UserRead:
     db.add(user)
     db.commit()
     db.refresh(user)
-    return UserRead.model_validate(user)
+    return ok(UserRead.model_validate(user), "User created")
 
 
-@router.patch("/{user_id}", response_model=UserRead)
+@router.patch("/{user_id}", response_model=APIResponse[UserRead])
 def update_user(
     user_id: uuid.UUID,
     payload: UserUpdate,
     db: Session = Depends(get_db),
-) -> UserRead:
+) -> APIResponse[UserRead]:
     user = db.execute(select(User).where(User.id == user_id)).scalar_one_or_none()
     if user is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="User not found",
-        )
+        raise NotFoundError("User not found")
 
     if payload.full_name is not None:
         user.full_name = payload.full_name
@@ -71,4 +67,4 @@ def update_user(
 
     db.commit()
     db.refresh(user)
-    return UserRead.model_validate(user)
+    return ok(UserRead.model_validate(user), "User updated")

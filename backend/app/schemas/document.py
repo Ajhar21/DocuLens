@@ -8,6 +8,7 @@ from pydantic import BaseModel, ConfigDict
 
 from app.models.document import DocumentStatus
 from app.schemas.job import JobRead
+from app.schemas.user import UserSummary
 
 
 class FileUploadItemResult(BaseModel):
@@ -26,6 +27,17 @@ class BatchUploadResponse(BaseModel):
     results: list[FileUploadItemResult]
     accepted_count: int
     rejected_count: int
+
+
+class UploadPolicy(BaseModel):
+    """Server-side upload limits, exposed so clients never hard-code them."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    max_upload_mb: int
+    max_upload_bytes: int
+    allowed_extensions: list[str]
+    accepted_content_types: list[str]
 
 
 class ParseSummary(BaseModel):
@@ -52,8 +64,18 @@ class DocumentRead(BaseModel):
     status: DocumentStatus
     error: Optional[str] = None
     uploaded_by: uuid.UUID
+    uploader: UserSummary
     created_at: datetime
     updated_at: datetime
+
+
+class DocumentPage(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    items: list[DocumentRead]
+    total: int
+    limit: int
+    offset: int
 
 
 class DocumentDetailRead(DocumentRead):

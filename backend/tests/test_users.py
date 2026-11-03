@@ -53,7 +53,7 @@ def test_users_crud_and_duplicate_conflict(client: TestClient, db: Session) -> N
         },
     )
     assert create_resp.status_code == 201, create_resp.text
-    alice = create_resp.json()
+    alice = create_resp.json()["data"]
     assert alice["email"] == "alice@example.com"
     assert alice["role"] == "reviewer"
     assert alice["is_active"] is True
@@ -70,6 +70,7 @@ def test_users_crud_and_duplicate_conflict(client: TestClient, db: Session) -> N
         },
     )
     assert dup_resp.status_code == 409
+    assert dup_resp.json()["error"]["code"] == "conflict"
 
     patch_resp = client.patch(
         f"/api/users/{alice['id']}",
@@ -77,7 +78,7 @@ def test_users_crud_and_duplicate_conflict(client: TestClient, db: Session) -> N
         json={"full_name": "Alice Updated", "role": "viewer", "is_active": False},
     )
     assert patch_resp.status_code == 200
-    updated = patch_resp.json()
+    updated = patch_resp.json()["data"]
     assert updated["full_name"] == "Alice Updated"
     assert updated["role"] == "viewer"
     assert updated["is_active"] is False
@@ -91,7 +92,7 @@ def test_users_crud_and_duplicate_conflict(client: TestClient, db: Session) -> N
 
     list_resp = client.get("/api/users", headers=headers)
     assert list_resp.status_code == 200
-    emails = [u["email"] for u in list_resp.json()]
+    emails = [u["email"] for u in list_resp.json()["data"]]
     assert "admin@example.com" in emails
     assert "alice@example.com" in emails
 

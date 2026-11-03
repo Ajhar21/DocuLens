@@ -44,3 +44,12 @@ class UserRead(BaseModel):
     role: UserRole
     is_active: bool
     created_at: datetime
+
+
+class UserSummary(BaseModel):
+    """Minimal public identity embedded in other resources (no email/role)."""
+
+    model_config = ConfigDict(from_attributes=True, extra="forbid")
+
+    id: uuid.UUID
+    full_name: str
