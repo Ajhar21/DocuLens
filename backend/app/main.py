@@ -7,6 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.api import auth, documents, health, jobs, users
 from app.core.config import settings
+from app.core.errors import register_exception_handlers
 
 logging.basicConfig(
     level=logging.INFO,
@@ -18,6 +19,8 @@ app = FastAPI(
     version="0.1.0",
     description="AI Document Intelligence System",
 )
+
+register_exception_handlers(app)
 
 app.add_middleware(
     CORSMiddleware,

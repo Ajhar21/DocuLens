@@ -45,8 +45,12 @@ def test_multifile_upload_one_valid_one_invalid(
             ("files", ("malware.exe", invalid_exe, "application/octet-stream")),
         ],
     )
-    assert resp.status_code == 201, resp.text
-    payload = resp.json()
+    # Partial success -> 207 Multi-Status with per-file results.
+    assert resp.status_code == 207, resp.text
+    body = resp.json()
+    assert body["success"] is True
+    assert body["error"] is None
+    payload = body["data"]
 
     assert payload["accepted_count"] == 1
     assert payload["rejected_count"] == 1
@@ -72,7 +76,9 @@ def test_multifile_upload_one_valid_one_invalid(
 
     detail_resp = client.get(f"/api/documents/{docs[0].id}", headers=headers)
     assert detail_resp.status_code == 200
-    assert detail_resp.json()["latest_job"]["id"] == str(jobs[0].id)
+    detail = detail_resp.json()["data"]
+    assert detail["latest_job"]["id"] == str(jobs[0].id)
+    assert detail["uploader"]["full_name"] == "Uploader"
 
     dl_resp = client.get(f"/api/documents/{docs[0].id}/file", headers=headers)
     assert dl_resp.status_code == 200
@@ -89,8 +95,11 @@ def test_upload_zero_byte_file_rejected_cleanly(
         headers=headers,
         files=[("files", ("empty.pdf", b"", "application/pdf"))],
     )
-    assert resp.status_code == 201
-    payload = resp.json()
+    assert resp.status_code == 422
+    body = resp.json()
+    assert body["success"] is False
+    assert body["error"]["code"] == "all_files_rejected"
+    payload = body["data"]
     assert payload["accepted_count"] == 0
     assert payload["rejected_count"] == 1
     assert payload["results"][0]["status"] == "rejected"
@@ -118,8 +127,10 @@ def test_oversized_file_rejected_without_full_memory_load(
         headers=headers,
         files=[("files", ("big.pdf", oversized_bytes, "application/pdf"))],
     )
-    assert resp.status_code == 201
-    payload = resp.json()
+    assert resp.status_code == 422
+    body = resp.json()
+    assert body["error"]["code"] == "all_files_rejected"
+    payload = body["data"]
     assert payload["accepted_count"] == 0
     assert payload["rejected_count"] == 1
     rejected = payload["results"][0]
@@ -148,7 +159,7 @@ def test_nasty_and_unicode_filenames_safe_path(
     ]
     resp = client.post("/api/documents", headers=headers, files=files_payload)
     assert resp.status_code == 201
-    payload = resp.json()
+    payload = resp.json()["data"]
     assert payload["accepted_count"] == 3
     assert payload["rejected_count"] == 0
 
@@ -182,7 +193,7 @@ def test_duplicate_file_upload_allowed_with_hash_tracking(
         files=[("files", ("invoice.csv", csv_bytes, "text/csv"))],
     )
     assert resp1.status_code == 201
-    doc1_id = resp1.json()["results"][0]["document_id"]
+    doc1_id = resp1.json()["data"]["results"][0]["document_id"]
 
     resp2 = client.post(
         "/api/documents",
@@ -190,7 +201,7 @@ def test_duplicate_file_upload_allowed_with_hash_tracking(
         files=[("files", ("invoice.csv", csv_bytes, "text/csv"))],
     )
     assert resp2.status_code == 201
-    doc2_id = resp2.json()["results"][0]["document_id"]
+    doc2_id = resp2.json()["data"]["results"][0]["document_id"]
 
     # Both accepted with distinct IDs
     assert doc1_id != doc2_id
@@ -202,3 +213,71 @@ def test_duplicate_file_upload_allowed_with_hash_tracking(
     assert doc1.sha256 == doc2.sha256
     assert doc1.stored_path != doc2.stored_path
 
+
+
+def test_upload_policy_is_discoverable(client: TestClient, db: Session) -> None:
+    from app.core.config import settings
+
+    headers = _reviewer_headers(client, db)
+    resp = client.get("/api/documents/upload-policy", headers=headers)
+    assert resp.status_code == 200, resp.text
+    policy = resp.json()["data"]
+    assert policy["max_upload_mb"] == settings.MAX_UPLOAD_MB
+    assert policy["max_upload_bytes"] == settings.MAX_UPLOAD_MB * 1024 * 1024
+    assert ".pdf" in policy["allowed_extensions"]
+    assert "application/pdf" in policy["accepted_content_types"]
+
+    assert client.get("/api/documents/upload-policy").status_code == 401
+
+
+def test_list_documents_page_envelope_with_uploader(client: TestClient, db: Session) -> None:
+    headers = _reviewer_headers(client, db)
+    files = [
+        ("files", (f"f{i}.csv", f"a,b\n{i},2\n".encode(), "text/csv")) for i in range(3)
+    ]
+    assert client.post("/api/documents", headers=headers, files=files).status_code == 201
+
+    resp = client.get("/api/documents?limit=2&offset=0", headers=headers)
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["success"] is True
+    page = body["data"]
+    assert page["total"] == 3
+    assert page["limit"] == 2
+    assert page["offset"] == 0
+    assert len(page["items"]) == 2
+    assert page["items"][0]["uploader"]["full_name"] == "Uploader"
+    assert "email" not in page["items"][0]["uploader"]
+
+    resp2 = client.get("/api/documents?limit=2&offset=2", headers=headers)
+    assert len(resp2.json()["data"]["items"]) == 1
+
+    filtered = client.get("/api/documents?status=parsed", headers=headers).json()["data"]
+    assert filtered["total"] == 0
+    assert filtered["items"] == []
+
+
+def test_errors_use_envelope(client: TestClient, db: Session) -> None:
+    import uuid as _uuid
+
+    headers = _reviewer_headers(client, db)
+
+    # Validation error: no files part at all
+    resp = client.post("/api/documents", headers=headers)
+    assert resp.status_code == 422
+    body = resp.json()
+    assert body["success"] is False
+    assert body["data"] is None
+    assert body["error"]["code"] == "validation_error"
+    assert any(d["field"] == "files" for d in body["error"]["details"])
+
+    # Not found
+    resp = client.get(f"/api/documents/{_uuid.uuid4()}", headers=headers)
+    assert resp.status_code == 404
+    assert resp.json()["error"]["code"] == "not_found"
+    assert resp.json()["message"] == "Document not found"
+
+    # Invalid query param
+    resp = client.get("/api/documents?limit=0", headers=headers)
+    assert resp.status_code == 422
+    assert resp.json()["error"]["details"][0]["field"] == "limit"

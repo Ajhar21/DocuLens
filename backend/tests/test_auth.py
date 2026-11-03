@@ -54,13 +54,15 @@ def test_login_success_and_failure(client: TestClient, db: Session) -> None:
         headers={"Authorization": f"Bearer {body['access_token']}"},
     )
     assert me_resp.status_code == 200
-    assert me_resp.json()["email"] == "reviewer@example.com"
+    assert me_resp.json()["data"]["email"] == "reviewer@example.com"
 
     bad_resp = client.post(
         "/api/auth/login",
         data={"username": "reviewer@example.com", "password": "WrongPassword"},
     )
     assert bad_resp.status_code == 401
+    assert bad_resp.json()["error"]["code"] == "invalid_credentials"
+    assert bad_resp.headers.get("www-authenticate") == "Bearer"
 
 
 def test_inactive_user_rejected(client: TestClient, db: Session) -> None:
@@ -81,6 +83,7 @@ def test_inactive_user_rejected(client: TestClient, db: Session) -> None:
         data={"username": "inactive@example.com", "password": "Pass123456!"},
     )
     assert login_resp.status_code == 401
+    assert login_resp.json()["error"]["code"] == "account_inactive"
 
     me_resp = client.get("/api/auth/me", headers=headers)
     assert me_resp.status_code == 401
@@ -99,6 +102,7 @@ def test_viewer_gets_403_on_upload_and_users(client: TestClient, db: Session) ->
         files=[("files", ("sample.csv", b"col1,col2\n1,2\n", "text/csv"))],
     )
     assert upload_resp.status_code == 403
+    assert upload_resp.json()["error"]["code"] == "forbidden"
 
     docs_resp = client.get("/api/documents", headers=headers)
     assert docs_resp.status_code == 200
@@ -120,7 +124,7 @@ def test_admin_user_management(client: TestClient, db: Session) -> None:
         },
     )
     assert create_resp.status_code == 201
-    created = create_resp.json()
+    created = create_resp.json()["data"]
     assert created["email"] == "newuser@example.com"
     assert created["role"] == "reviewer"
 
@@ -130,21 +134,22 @@ def test_admin_user_management(client: TestClient, db: Session) -> None:
         json={"role": "viewer", "full_name": "Updated Name", "is_active": False},
     )
     assert patch_resp.status_code == 200
-    patched = patch_resp.json()
+    patched = patch_resp.json()["data"]
     assert patched["role"] == "viewer"
     assert patched["full_name"] == "Updated Name"
     assert patched["is_active"] is False
 
     list_resp = client.get("/api/users", headers=headers)
     assert list_resp.status_code == 200
-    assert len(list_resp.json()) == 2
+    assert len(list_resp.json()["data"]) == 2
 
 
 def test_unauthenticated_and_malformed_tokens_rejected(client: TestClient) -> None:
     # 1. No Authorization header
     resp_no_token = client.get("/api/documents")
     assert resp_no_token.status_code == 401
-    assert "Not authenticated" in resp_no_token.json().get("detail", "")
+    assert "Not authenticated" in resp_no_token.json()["message"]
+    assert resp_no_token.json()["error"]["code"] == "unauthorized"
 
     resp_upload_no_token = client.post(
         "/api/documents",
@@ -161,7 +166,7 @@ def test_unauthenticated_and_malformed_tokens_rejected(client: TestClient) -> No
         headers={"Authorization": "Bearer invalid.jwt.signature"},
     )
     assert resp_bad_token.status_code == 401
-    assert "Could not validate credentials" in resp_bad_token.json().get("detail", "")
+    assert "Could not validate credentials" in resp_bad_token.json()["message"]
 
     # 3. Wrong auth scheme
     resp_basic = client.get(
