@@ -1,0 +1,27 @@
+.\venv\Scripts\activate
+
+uvicorn app.main:app --port 8000
+python -m app.worker
+npm run dev
+
+$ TOKEN=$(curl -s -X POST http://localhost:8000/api/auth/login \
+  -H "Content-Type: application/x-www-form-urlencoded" \
+  -d "username=ajharakanda21@gmail.com&password=@jhaR2026" \
+  | grep -o '"access_token":"[^"]*' | cut -d'"' -f4)
+
+
+$ curl -X POST http://localhost:8000/api/documents   -H "Authorization: Bearer $TOKEN"   -F "files=@invoice.pdf"
+{"results":[{"filename":"invoice.pdf","status":"accepted","document_id":"481dad66-268d-4019-a740-bb4d5b9f68fb","job_id":"04a86844-6199-4491-be99-88b1044ea060","reason":null}],"accepted_count":1,"rejected_count":0}
+
+
+
+uvicorn app.main:app --port 8000 --reload
+
+curl -X POST http://localhost:8000/api/auth/login \
+     -H "Content-Type: application/x-www-form-urlencoded" \
+     -d "username=ajharakanda21@gmail.com&password=@jhaR2026"
+	 
+	 
+	 
+
+{"access_token":"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJlYzkzYTE0YS0zMjgzLTRhMGEtYmQwMi01MGQ5ZjBmMmU2MTAiLCJyb2xlIjoiYWRtaW4iLCJleHAiOjE3OTM2NTE4MzQsImlhdCI6MTc5MzY0ODIzNH0.-l2OUsczTHkY_sbFDXIL4dn3-Ing33K3TwRPkB8tk1k","token_type":"bearer"}

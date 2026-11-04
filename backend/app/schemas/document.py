@@ -1,12 +1,13 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
+from decimal import Decimal
 from typing import Any, Literal, Optional
 import uuid
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
-from app.models.document import DocumentStatus
+from app.models.document import DocumentStatus, ReviewStatus
 from app.schemas.job import JobRead
 from app.schemas.user import UserSummary
 
@@ -52,6 +53,51 @@ class ParseSummary(BaseModel):
     created_at: datetime
 
 
+class InvoiceLineItemRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True, extra="forbid")
+
+    id: uuid.UUID
+    line_no: int
+    description: Optional[str] = None
+    quantity: Optional[Decimal] = None
+    unit_price: Optional[Decimal] = None
+    amount: Optional[Decimal] = None
+
+
+class ExtractedInvoiceRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True, extra="forbid")
+
+    id: uuid.UUID
+    document_id: uuid.UUID
+    invoice_number: Optional[str] = None
+    invoice_date: Optional[date] = None
+    supplier_name: Optional[str] = None
+    customer_name: Optional[str] = None
+    subtotal: Optional[Decimal] = None
+    tax: Optional[Decimal] = None
+    total: Optional[Decimal] = None
+    currency: Optional[str] = None
+    extraction_metadata: dict[str, Any] = Field(default_factory=dict)
+    line_items: list[InvoiceLineItemRead] = Field(default_factory=list)
+    created_at: datetime
+    updated_at: datetime
+
+
+class ValidationResultRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True, extra="forbid")
+
+    id: uuid.UUID
+    document_id: uuid.UUID
+    validation_code: str
+    field_name: Optional[str] = None
+    severity: str
+    message: str
+    expected_value: Optional[str] = None
+    actual_value: Optional[str] = None
+    status: str
+    created_at: datetime
+
+
 class DocumentRead(BaseModel):
     model_config = ConfigDict(from_attributes=True, extra="forbid")
 
@@ -62,6 +108,7 @@ class DocumentRead(BaseModel):
     size_bytes: int
     sha256: str
     status: DocumentStatus
+    review_status: Optional[ReviewStatus] = None
     error: Optional[str] = None
     uploaded_by: uuid.UUID
     uploader: UserSummary
@@ -80,4 +127,7 @@ class DocumentPage(BaseModel):
 
 class DocumentDetailRead(DocumentRead):
     latest_job: Optional[JobRead] = None
+    processing_jobs: list[JobRead] = Field(default_factory=list)
     parse_summary: Optional[ParseSummary] = None
+    extracted_invoice: Optional[ExtractedInvoiceRead] = None
+    validation_results: list[ValidationResultRead] = Field(default_factory=list)

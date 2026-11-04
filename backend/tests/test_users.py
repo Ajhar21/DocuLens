@@ -3,6 +3,7 @@ from __future__ import annotations
 import uuid
 
 from fastapi.testclient import TestClient
+from sqlalchemy import delete
 from sqlalchemy.orm import Session
 
 from app.core.security import hash_password
@@ -38,69 +39,86 @@ def _auth_headers(client: TestClient, email: str, password: str) -> dict[str, st
 
 
 def test_users_crud_and_duplicate_conflict(client: TestClient, db: Session) -> None:
-    _seed_user(db, "admin@example.com", "AdminPass123!", role=UserRole.ADMIN)
-    headers = _auth_headers(client, "admin@example.com", "AdminPass123!")
+    uid = uuid.uuid4().hex[:8]
+    admin_email = f"test-admin-{uid}@example.com"
+    alice_email = f"test-alice-{uid}@example.com"
+    admin = _seed_user(db, admin_email, "AdminPass123!", role=UserRole.ADMIN)
+    alice_id: str | None = None
 
-    create_resp = client.post(
-        "/api/users",
-        headers=headers,
-        json={
-            "email": "Alice@Example.com",
-            "full_name": "Alice Reviewer",
-            "password": "AlicePassword123!",
-            "role": "reviewer",
-            "is_active": True,
-        },
-    )
-    assert create_resp.status_code == 201, create_resp.text
-    alice = create_resp.json()["data"]
-    assert alice["email"] == "alice@example.com"
-    assert alice["role"] == "reviewer"
-    assert alice["is_active"] is True
+    try:
+        headers = _auth_headers(client, admin_email, "AdminPass123!")
 
-    dup_resp = client.post(
-        "/api/users",
-        headers=headers,
-        json={
-            "email": "alice@example.com",
-            "full_name": "Duplicate Alice",
-            "password": "AlicePassword123!",
-            "role": "viewer",
-            "is_active": True,
-        },
-    )
-    assert dup_resp.status_code == 409
-    assert dup_resp.json()["error"]["code"] == "conflict"
+        create_resp = client.post(
+            "/api/users",
+            headers=headers,
+            json={
+                "email": f"Test-Alice-{uid}@Example.com",
+                "full_name": "Alice Reviewer",
+                "password": "AlicePassword123!",
+                "role": "reviewer",
+                "is_active": True,
+            },
+        )
+        assert create_resp.status_code == 201, create_resp.text
+        alice = create_resp.json()["data"]
+        alice_id = alice["id"]
+        assert alice["email"] == alice_email.lower()
+        assert alice["role"] == "reviewer"
+        assert alice["is_active"] is True
 
-    patch_resp = client.patch(
-        f"/api/users/{alice['id']}",
-        headers=headers,
-        json={"full_name": "Alice Updated", "role": "viewer", "is_active": False},
-    )
-    assert patch_resp.status_code == 200
-    updated = patch_resp.json()["data"]
-    assert updated["full_name"] == "Alice Updated"
-    assert updated["role"] == "viewer"
-    assert updated["is_active"] is False
+        dup_resp = client.post(
+            "/api/users",
+            headers=headers,
+            json={
+                "email": alice_email,
+                "full_name": "Duplicate Alice",
+                "password": "AlicePassword123!",
+                "role": "viewer",
+                "is_active": True,
+            },
+        )
+        assert dup_resp.status_code == 409
+        assert dup_resp.json()["error"]["code"] == "conflict"
 
-    missing_resp = client.patch(
-        f"/api/users/{uuid.uuid4()}",
-        headers=headers,
-        json={"full_name": "Ghost"},
-    )
-    assert missing_resp.status_code == 404
+        patch_resp = client.patch(
+            f"/api/users/{alice['id']}",
+            headers=headers,
+            json={"full_name": "Alice Updated", "role": "viewer", "is_active": False},
+        )
+        assert patch_resp.status_code == 200
+        updated = patch_resp.json()["data"]
+        assert updated["full_name"] == "Alice Updated"
+        assert updated["role"] == "viewer"
+        assert updated["is_active"] is False
 
-    list_resp = client.get("/api/users", headers=headers)
-    assert list_resp.status_code == 200
-    emails = [u["email"] for u in list_resp.json()["data"]]
-    assert "admin@example.com" in emails
-    assert "alice@example.com" in emails
+        missing_resp = client.patch(
+            f"/api/users/{uuid.uuid4()}",
+            headers=headers,
+            json={"full_name": "Ghost"},
+        )
+        assert missing_resp.status_code == 404
+
+        list_resp = client.get("/api/users", headers=headers)
+        assert list_resp.status_code == 200
+        emails = [u["email"] for u in list_resp.json()["data"]]
+        assert admin_email.lower() in emails
+        assert alice_email.lower() in emails
+    finally:
+        if alice_id:
+            db.execute(delete(User).where(User.id == uuid.UUID(alice_id)))
+        db.delete(admin)
+        db.commit()
 
 
 def test_reviewer_cannot_manage_users(client: TestClient, db: Session) -> None:
-    _seed_user(db, "rev@example.com", "RevPass123!", role=UserRole.REVIEWER)
-    headers = _auth_headers(client, "rev@example.com", "RevPass123!")
+    uid = uuid.uuid4().hex[:8]
+    rev_email = f"test-rev-{uid}@example.com"
+    rev = _seed_user(db, rev_email, "RevPass123!", role=UserRole.REVIEWER)
 
-    resp = client.get("/api/users", headers=headers)
-    assert resp.status_code == 403
-
+    try:
+        headers = _auth_headers(client, rev_email, "RevPass123!")
+        resp = client.get("/api/users", headers=headers)
+        assert resp.status_code == 403
+    finally:
+        db.delete(rev)
+        db.commit()

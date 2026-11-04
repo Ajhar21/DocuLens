@@ -1,4 +1,4 @@
-"""Document domain service: upload, listing, detail and upload policy.
+"""Document domain service: upload, listing, detail, reprocessing, and upload policy.
 
 Routers stay thin HTTP adapters; all persistence and business rules live here.
 """
@@ -15,19 +15,23 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session, selectinload
 
 from app.core.config import settings
-from app.core.errors import NotFoundError
-from app.models.document import Document, DocumentStatus
-from app.models.job import ProcessingJob
+from app.core.errors import AppError, ConflictError, NotFoundError
+from app.models.document import Document, DocumentStatus, ReviewStatus
+from app.models.extraction import ExtractedInvoice
+from app.models.job import JobType, ProcessingJob
 from app.models.parse_result import DocumentParseResult
 from app.models.user import User
+from app.models.validation import ValidationResult
 from app.schemas.document import (
     BatchUploadResponse,
     DocumentDetailRead,
     DocumentPage,
     DocumentRead,
+    ExtractedInvoiceRead,
     FileUploadItemResult,
     ParseSummary,
     UploadPolicy,
+    ValidationResultRead,
 )
 from app.schemas.job import JobRead
 from app.services import job_queue
@@ -41,6 +45,10 @@ from app.services.storage import (
 logger = logging.getLogger(__name__)
 
 _ALLOWED_LIST = ", ".join(sorted(ALLOWED_EXTENSIONS))
+_ALLOWED_REPROCESS_STAGES = {
+    JobType.EXTRACTION.value,
+    JobType.EMBEDDING.value,
+}
 
 
 def get_upload_policy() -> UploadPolicy:
@@ -101,7 +109,7 @@ def _store_one(db: Session, upload: UploadFile, uploader: User, max_bytes: int) 
         job = job_queue.enqueue(
             session=db,
             document_id=doc.id,
-            job_type="parse",
+            job_type=JobType.PARSE.value,
             commit=False,
         )
         db.commit()
@@ -137,13 +145,17 @@ def list_documents(
     db: Session,
     limit: int,
     offset: int,
-    status_filter: Optional[DocumentStatus],
+    status_filter: Optional[DocumentStatus] = None,
+    review_status_filter: Optional[ReviewStatus] = None,
 ) -> DocumentPage:
     base = select(Document)
     count_stmt = select(func.count()).select_from(Document)
     if status_filter is not None:
         base = base.where(Document.status == status_filter.value)
         count_stmt = count_stmt.where(Document.status == status_filter.value)
+    if review_status_filter is not None:
+        base = base.where(Document.review_status == review_status_filter.value)
+        count_stmt = count_stmt.where(Document.review_status == review_status_filter.value)
 
     total = db.execute(count_stmt).scalar_one()
     docs = (
@@ -178,16 +190,16 @@ def get_document(db: Session, document_id: uuid.UUID) -> Document:
 def get_document_detail(db: Session, document_id: uuid.UUID) -> DocumentDetailRead:
     doc = get_document(db, document_id)
 
-    latest_job = (
+    all_jobs = list(
         db.execute(
             select(ProcessingJob)
             .where(ProcessingJob.document_id == document_id)
-            .order_by(ProcessingJob.created_at.desc())
-            .limit(1)
+            .order_by(ProcessingJob.created_at.desc(), ProcessingJob.id.desc())
         )
         .scalars()
-        .first()
+        .all()
     )
+    latest_job = all_jobs[0] if all_jobs else None
 
     parse_row = db.execute(
         select(DocumentParseResult).where(DocumentParseResult.document_id == document_id)
@@ -208,12 +220,67 @@ def get_document_detail(db: Session, document_id: uuid.UUID) -> DocumentDetailRe
             created_at=parse_row.created_at,
         )
 
+    invoice_row = db.execute(
+        select(ExtractedInvoice)
+        .options(selectinload(ExtractedInvoice.line_items))
+        .where(ExtractedInvoice.document_id == document_id)
+    ).scalar_one_or_none()
+
+    validation_rows = list(
+        db.execute(
+            select(ValidationResult)
+            .where(ValidationResult.document_id == document_id)
+            .order_by(ValidationResult.created_at.asc(), ValidationResult.id.asc())
+        )
+        .scalars()
+        .all()
+    )
+
     base_doc = DocumentRead.model_validate(doc)
     return DocumentDetailRead(
         **base_doc.model_dump(),
         latest_job=JobRead.model_validate(latest_job) if latest_job else None,
+        processing_jobs=[JobRead.model_validate(j) for j in all_jobs],
         parse_summary=parse_summary,
+        extracted_invoice=(
+            ExtractedInvoiceRead.model_validate(invoice_row)
+            if invoice_row is not None
+            else None
+        ),
+        validation_results=[ValidationResultRead.model_validate(v) for v in validation_rows],
     )
+
+
+def reprocess_document(
+    db: Session,
+    document_id: uuid.UUID,
+    stage: str,
+) -> JobRead:
+    doc = get_document(db, document_id)
+
+    normalized_stage = (stage or "").strip().lower()
+    if normalized_stage not in _ALLOWED_REPROCESS_STAGES:
+        raise AppError(
+            422,
+            "validation_error",
+            "Invalid stage parameter. Allowed values: 'extraction', 'embedding'.",
+        )
+
+    parse_row = db.execute(
+        select(DocumentParseResult.id).where(DocumentParseResult.document_id == doc.id)
+    ).scalar_one_or_none()
+    if parse_row is None:
+        raise ConflictError(
+            "Cannot reprocess extraction or embedding before document parsing has succeeded."
+        )
+
+    job = job_queue.enqueue(
+        session=db,
+        document_id=doc.id,
+        job_type=normalized_stage,
+        commit=True,
+    )
+    return JobRead.model_validate(job)
 
 
 def resolve_document_file(db: Session, document_id: uuid.UUID) -> tuple[Document, Path]:
@@ -225,4 +292,3 @@ def resolve_document_file(db: Session, document_id: uuid.UUID) -> tuple[Document
     if not file_path.exists():
         raise NotFoundError("Stored file not found on disk")
     return doc, file_path
-

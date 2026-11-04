@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, Optional
+from typing import Any, Literal, Optional
 import uuid
 
 from fastapi import APIRouter, Depends, File, Query, Response, UploadFile, status
@@ -11,7 +11,7 @@ from app.core.deps import get_current_user, require_role
 from app.core.errors import AppError
 from app.core.responses import APIResponse, ok
 from app.db.session import get_db
-from app.models.document import DocumentStatus
+from app.models.document import DocumentStatus, ReviewStatus
 from app.models.user import User, UserRole
 from app.schemas.document import (
     BatchUploadResponse,
@@ -19,6 +19,7 @@ from app.schemas.document import (
     DocumentPage,
     UploadPolicy,
 )
+from app.schemas.job import JobRead
 from app.services import document_service
 
 router = APIRouter(prefix="/documents", tags=["documents"])
@@ -86,9 +87,10 @@ def list_documents(
     limit: int = Query(default=50, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
     status_filter: Optional[DocumentStatus] = Query(default=None, alias="status"),
+    review_status_filter: Optional[ReviewStatus] = Query(default=None, alias="review_status"),
     db: Session = Depends(get_db),
 ) -> APIResponse[DocumentPage]:
-    return ok(document_service.list_documents(db, limit, offset, status_filter))
+    return ok(document_service.list_documents(db, limit, offset, status_filter, review_status_filter))
 
 
 @router.get(
@@ -101,6 +103,24 @@ def get_document(
     db: Session = Depends(get_db),
 ) -> APIResponse[DocumentDetailRead]:
     return ok(document_service.get_document_detail(db, document_id))
+
+
+@router.post(
+    "/{document_id}/reprocess",
+    response_model=APIResponse[JobRead],
+    status_code=status.HTTP_202_ACCEPTED,
+    dependencies=[Depends(require_role(UserRole.REVIEWER))],
+)
+def reprocess_document(
+    document_id: uuid.UUID,
+    stage: Literal["extraction", "embedding"] = Query(
+        ...,
+        description="Pipeline stage to enqueue: 'extraction' or 'embedding'",
+    ),
+    db: Session = Depends(get_db),
+) -> APIResponse[JobRead]:
+    job_read = document_service.reprocess_document(db, document_id, stage)
+    return ok(job_read, f"Enqueued '{stage}' job for document {document_id}")
 
 
 @router.get(

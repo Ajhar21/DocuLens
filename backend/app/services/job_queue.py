@@ -5,35 +5,111 @@ import logging
 from typing import Optional
 import uuid
 
+import sqlalchemy as sa
 from sqlalchemy import func, select, update
+from sqlalchemy.dialects import postgresql
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
-from app.models.document import Document, DocumentStatus
-from app.models.job import JobStatus, ProcessingJob
+from app.models.document import Document, DocumentStatus, ReviewStatus
+from app.models.job import JobStatus, JobType, ProcessingJob
 
 logger = logging.getLogger(__name__)
+
+_CANONICAL_JOB_TYPES = {
+    "parse": JobType.PARSE.value,
+    "extraction": JobType.EXTRACTION.value,
+    "embedding": JobType.EMBEDDING.value,
+}
+
+
+def normalize_job_type(job_type: str) -> str:
+    cleaned = (job_type or "").strip().lower()
+    return _CANONICAL_JOB_TYPES.get(cleaned, cleaned or JobType.PARSE.value)
 
 
 def enqueue(
     session: Session,
     document_id: uuid.UUID,
-    job_type: str = "parse",
+    job_type: str = JobType.PARSE.value,
     max_attempts: int = 3,
     run_after: Optional[datetime] = None,
     commit: bool = True,
 ) -> ProcessingJob:
+    """Idempotently enqueue a job using the partial unique index on active (pending/running) jobs."""
     now = datetime.now(timezone.utc)
-    job = ProcessingJob(
-        document_id=document_id,
-        job_type=job_type,
-        status=JobStatus.PENDING.value,
-        attempts=0,
-        max_attempts=max_attempts,
-        run_after=run_after or now,
-        created_at=now,
+    canonical_type = normalize_job_type(job_type)
+    new_id = uuid.uuid4()
+
+    stmt = (
+        postgresql.insert(ProcessingJob)
+        .values(
+            id=new_id,
+            document_id=document_id,
+            job_type=canonical_type,
+            status=JobStatus.PENDING.value,
+            attempts=0,
+            max_attempts=max_attempts,
+            run_after=run_after or now,
+            created_at=now,
+        )
+        .on_conflict_do_nothing(
+            index_elements=["document_id", "job_type"],
+            index_where=sa.text("status IN ('pending', 'running')"),
+        )
+        .returning(ProcessingJob)
     )
-    session.add(job)
+
+    inserted = session.scalars(
+        stmt, execution_options={"populate_existing": True}
+    ).first()
+
+    if inserted is not None:
+        job = inserted
+    else:
+        existing = (
+            session.execute(
+                select(ProcessingJob)
+                .where(
+                    ProcessingJob.document_id == document_id,
+                    ProcessingJob.job_type == canonical_type,
+                    ProcessingJob.status.in_(
+                        [JobStatus.PENDING.value, JobStatus.RUNNING.value]
+                    ),
+                )
+                .order_by(ProcessingJob.created_at.desc())
+                .limit(1)
+            )
+            .scalars()
+            .first()
+        )
+        if existing is None:
+            raise RuntimeError(
+                f"Failed to enqueue or locate active job for document_id={document_id} job_type={canonical_type}"
+            )
+        job = existing
+
+    if commit:
+        session.commit()
+        session.refresh(job)
+    else:
+        session.flush()
+    return job
+
+
+def update_stage(
+    session: Session,
+    job_id: uuid.UUID,
+    stage: str,
+    commit: bool = False,
+) -> Optional[ProcessingJob]:
+    """Update current_stage and refresh locked_at heartbeat timestamp."""
+    now = datetime.now(timezone.utc)
+    job = session.get(ProcessingJob, job_id)
+    if job is None:
+        return None
+    job.current_stage = stage
+    job.locked_at = now
     if commit:
         session.commit()
         session.refresh(job)
@@ -77,10 +153,12 @@ def claim_next(session: Session, worker_id: str) -> Optional[ProcessingJob]:
         session.rollback()
         return None
 
-    doc = session.get(Document, job.document_id)
-    if doc is not None:
-        doc.status = DocumentStatus.PROCESSING.value
-        doc.updated_at = now
+    # EMBEDDING jobs are independent of document processing_status
+    if job.job_type != JobType.EMBEDDING.value:
+        doc = session.get(Document, job.document_id)
+        if doc is not None:
+            doc.status = DocumentStatus.PROCESSING.value
+            doc.updated_at = now
 
     session.commit()
     session.refresh(job)
@@ -98,12 +176,14 @@ def mark_succeeded(session: Session, job_id: uuid.UUID) -> Optional[ProcessingJo
     job.locked_by = None
     job.locked_at = None
     job.last_error = None
+    job.current_stage = "completed"
 
-    doc = session.get(Document, job.document_id)
-    if doc is not None:
-        doc.status = DocumentStatus.PARSED.value
-        doc.error = None
-        doc.updated_at = now
+    if job.job_type != JobType.EMBEDDING.value:
+        doc = session.get(Document, job.document_id)
+        if doc is not None:
+            doc.status = DocumentStatus.PARSED.value
+            doc.error = None
+            doc.updated_at = now
 
     session.commit()
     session.refresh(job)
@@ -115,6 +195,7 @@ def mark_failed(
     job_id: uuid.UUID,
     error: str,
     backoff_base_seconds: float = 5.0,
+    permanent: bool = False,
 ) -> Optional[ProcessingJob]:
     now = datetime.now(timezone.utc)
     job = session.get(ProcessingJob, job_id)
@@ -126,18 +207,21 @@ def mark_failed(
     job.locked_by = None
     job.locked_at = None
 
-    if job.attempts < job.max_attempts:
+    if not permanent and job.attempts < job.max_attempts:
         delay = backoff_base_seconds * (2 ** max(0, job.attempts - 1))
         job.status = JobStatus.PENDING.value
         job.run_after = now + timedelta(seconds=delay)
     else:
         job.status = JobStatus.FAILED.value
         job.finished_at = now
-        doc = session.get(Document, job.document_id)
-        if doc is not None:
-            doc.status = DocumentStatus.FAILED.value
-            doc.error = clean_error
-            doc.updated_at = now
+        if job.job_type != JobType.EMBEDDING.value:
+            doc = session.get(Document, job.document_id)
+            if doc is not None:
+                doc.status = DocumentStatus.FAILED.value
+                doc.error = clean_error
+                if job.job_type == JobType.EXTRACTION.value:
+                    doc.review_status = ReviewStatus.NEEDS_REVIEW.value
+                doc.updated_at = now
 
     session.commit()
     session.refresh(job)

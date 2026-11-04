@@ -1,7 +1,11 @@
 from __future__ import annotations
 
+from collections.abc import Generator
+import uuid
+
 from fastapi.testclient import TestClient
-from sqlalchemy import select
+import pytest
+from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
 from app.core.security import hash_password
@@ -9,10 +13,14 @@ from app.models.document import Document
 from app.models.job import ProcessingJob
 from app.models.user import User, UserRole
 
+_created_test_user_ids: list[uuid.UUID] = []
+
 
 def _reviewer_headers(client: TestClient, db: Session) -> dict[str, str]:
+    uid = uuid.uuid4().hex[:8]
+    email = f"test-uploader-{uid}@example.com"
     user = User(
-        email="uploader@example.com",
+        email=email,
         full_name="Uploader",
         password_hash=hash_password("UploadPass123!"),
         role=UserRole.REVIEWER.value,
@@ -20,13 +28,25 @@ def _reviewer_headers(client: TestClient, db: Session) -> dict[str, str]:
     )
     db.add(user)
     db.commit()
+    db.refresh(user)
+    _created_test_user_ids.append(user.id)
 
     resp = client.post(
         "/api/auth/login",
-        data={"username": "uploader@example.com", "password": "UploadPass123!"},
+        data={"username": email, "password": "UploadPass123!"},
     )
     assert resp.status_code == 200
     return {"Authorization": f"Bearer {resp.json()['access_token']}"}
+
+
+@pytest.fixture(autouse=True)
+def cleanup_document_test_users(db: Session) -> Generator[None, None, None]:
+    yield
+    while _created_test_user_ids:
+        user_id = _created_test_user_ids.pop()
+        db.execute(delete(Document).where(Document.uploaded_by == user_id))
+        db.execute(delete(User).where(User.id == user_id))
+    db.commit()
 
 
 def test_multifile_upload_one_valid_one_invalid(

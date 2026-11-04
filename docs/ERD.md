@@ -9,8 +9,7 @@ erDiagram
     users ||--o{ document_corrections : "corrected_by"
     users ||--o{ reconciliation_jobs : "initiated_by"
     users ||--o{ audit_logs : "user_id"
-    documents ||--o{ document_pages : "document_id"
-    documents ||--o{ spreadsheet_sheets : "document_id"
+    documents ||--o| document_parse_results : "document_id UNIQUE"
     documents ||--o| extracted_invoices : "document_id UNIQUE"
     extracted_invoices ||--o{ invoice_line_items : "invoice_id"
     documents ||--o{ validation_results : "document_id"
@@ -21,7 +20,6 @@ erDiagram
     documents ||--o{ reconciliation_jobs : "target_document_id"
     reconciliation_jobs ||--o{ reconciliation_results : "reconciliation_job_id"
     documents ||--o{ document_chunks : "document_id"
-    document_pages ||--o{ document_chunks : "page_id"
 
     roles {
         uuid id PK
@@ -54,21 +52,14 @@ erDiagram
         timestamptz created_at
         timestamptz updated_at
     }
-    document_pages {
+    document_parse_results {
         uuid id PK
-        uuid document_id FK
-        int page_number
-        text extracted_text
-        text extraction_method
-        jsonb extraction_metadata
-    }
-    spreadsheet_sheets {
-        uuid id PK
-        uuid document_id FK
-        text sheet_name
-        int sheet_index
-        jsonb headers
-        jsonb structured_data
+        uuid document_id FK "UNIQUE"
+        jsonb pages "[{page_number, text, source, ocr_confidence}]"
+        jsonb tables "[{name, columns, rows}]"
+        jsonb metadata
+        bool ocr_used
+        timestamptz created_at
     }
     extracted_invoices {
         uuid id PK
@@ -163,7 +154,7 @@ erDiagram
     document_chunks {
         uuid id PK
         uuid document_id FK
-        uuid page_id FK
+        int page_number "NULL for spreadsheets"
         int chunk_index
         text content
         tsvector content_tsv "generated"
@@ -188,20 +179,21 @@ erDiagram
 
 | Table | Index |
 |---|---|
-| `document_chunks` | HNSW on `embedding` (`vector_cosine_ops`); GIN on `content_tsv`; B-tree on `document_id` |
+| `document_chunks` | HNSW on `embedding` (`vector_cosine_ops`); GIN on `content_tsv`; B-tree on `document_id`; UNIQUE `(document_id, chunk_index)` |
 | `extracted_invoices` | B-tree `invoice_number`, `invoice_date`, `total`; B-tree `lower(supplier_name)`; GIN `supplier_name gin_trgm_ops` |
 | `documents` | `processing_status`, `review_status`, `uploaded_by`, `created_at`; UNIQUE `checksum` |
 | `processing_jobs` | partial `(status, run_after)` WHERE status = 'PENDING'; **partial UNIQUE `(document_id, job_type)` WHERE status IN ('PENDING','PROCESSING')** |
 | `validation_results` | `(document_id)`, `(validation_code)` |
-| `document_pages` | UNIQUE `(document_id, page_number)` |
+| `document_parse_results` | UNIQUE `(document_id)` |
 | `invoice_line_items` | `(invoice_id)` |
 | `reconciliation_jobs` | `(source_document_id)`, `(target_document_id)`, `(status)` |
 | `audit_logs` | `(entity_type, entity_id)`, `(user_id, created_at)` |
 
-## Additions not in the PRD (small, each justified)
+## Additions & Deviations from PRD (small, each justified)
 
-| Addition | Why |
+| Item | Why |
 |---|---|
+| `document_parse_results` + `document_chunks.page_number` (replaces `document_pages`, `spreadsheet_sheets`, `page_id`) | Day 1 stores parsed pages and spreadsheet tables as JSONB in a single `document_parse_results` row per document; `document_chunks` tracks `page_number` (`INTEGER NULL`) directly instead of a `page_id` FK. |
 | `documents.reviewed_by`, `reviewed_at` | PRD requires "approving user" in the audit; a column is cheaper to query than digging through `audit_logs`. Approval event still also goes to `audit_logs`. |
 | `processing_jobs.current_stage` | Worker updates `locked_at` per stage; showing the stage in "processing history" costs one column. |
 | `invoice_line_items.line_no` | Stable ordering of line items. |

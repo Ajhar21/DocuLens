@@ -21,6 +21,21 @@ export interface TokenResponse {
 
 export type DocumentStatus = "uploaded" | "processing" | "parsed" | "failed";
 
+export type ReviewStatus =
+  | "pending"
+  | "needs_review"
+  | "approved"
+  | "rejected"
+  | "not_required";
+
+export type JobType = "parse" | "extraction" | "embedding";
+
+export type JobStatus = "pending" | "running" | "succeeded" | "failed";
+
+export type ValidationSeverity = "ERROR" | "WARNING" | "INFO";
+
+export type ValidationStatus = "PASSED" | "FAILED" | "SKIPPED";
+
 export interface DocumentItem {
   id: string;
   original_filename: string;
@@ -29,6 +44,7 @@ export interface DocumentItem {
   size_bytes: number;
   sha256: string;
   status: DocumentStatus;
+  review_status: ReviewStatus | null;
   error: string | null;
   uploaded_by: string;
   uploader: UserSummary;
@@ -47,6 +63,7 @@ export interface ListDocumentsParams {
   limit?: number;
   offset?: number;
   status?: DocumentStatus;
+  review_status?: ReviewStatus;
 }
 
 export interface FileUploadItemResult {
@@ -88,3 +105,86 @@ export interface APIResponse<T> {
   error: ErrorInfo | null;
 }
 
+// ---------------------------------------------------------------------------
+// Day 2 Detail Schemas (mirroring backend/app/schemas/document.py & job.py)
+// ---------------------------------------------------------------------------
+
+export interface JobRead {
+  id: string;
+  document_id: string;
+  job_type: JobType | string;
+  status: JobStatus;
+  current_stage: string | null;
+  attempts: number;
+  attempt_count: number;
+  max_attempts: number;
+  run_after: string;
+  locked_by: string | null;
+  locked_at: string | null;
+  last_error: string | null;
+  error_message: string | null;
+  created_at: string;
+  started_at: string | null;
+  finished_at: string | null;
+  completed_at: string | null;
+}
+
+export interface ParseSummary {
+  page_count: number;
+  table_count: number;
+  ocr_used: boolean;
+  metadata: Record<string, unknown>;
+  pages: Record<string, unknown>[];
+  tables: Record<string, unknown>[];
+  created_at: string;
+}
+
+export interface InvoiceLineItemRead {
+  id: string;
+  line_no: number;
+  description: string | null;
+  quantity: string | number | null;
+  unit_price: string | number | null;
+  amount: string | number | null;
+}
+
+export interface ExtractedInvoiceRead {
+  id: string;
+  document_id: string;
+  invoice_number: string | null;
+  invoice_date: string | null;
+  supplier_name: string | null;
+  customer_name: string | null;
+  subtotal: string | number | null;
+  tax: string | number | null;
+  total: string | number | null;
+  discount?: string | number | null;
+  shipping?: string | number | null;
+  currency: string | null;
+  extraction_metadata: Record<string, unknown>;
+  line_items: InvoiceLineItemRead[];
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ValidationResultRead {
+  id: string;
+  document_id: string;
+  validation_code: string;
+  field_name: string | null;
+  severity: ValidationSeverity | string;
+  message: string;
+  expected_value: string | null;
+  actual_value: string | null;
+  status: ValidationStatus | string;
+  created_at: string;
+}
+
+export interface DocumentDetailRead extends DocumentItem {
+  review_status: ReviewStatus | null;
+  latest_job: JobRead | null;
+  processing_jobs: JobRead[];
+  parse_summary: ParseSummary | null;
+  extracted_invoice: ExtractedInvoiceRead | null;
+  validation_results: ValidationResultRead[];
+}

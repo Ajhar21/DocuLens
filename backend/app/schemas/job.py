@@ -16,12 +16,16 @@ class JobRead(BaseModel):
     document_id: uuid.UUID
     job_type: str
     status: JobStatus
+    current_stage: Optional[str] = None
     attempts: int
+    attempt_count: int = 0
     max_attempts: int
     run_after: datetime
     locked_by: Optional[str] = None
     locked_at: Optional[datetime] = None
     last_error: Optional[str] = None
+    error_message: Optional[str] = None
     created_at: datetime
     started_at: Optional[datetime] = None
     finished_at: Optional[datetime] = None
+    completed_at: Optional[datetime] = None

@@ -5,6 +5,7 @@ import { Toaster } from "@/components/ui/sonner";
 import { AuthProvider } from "@/features/auth/AuthProvider";
 import { LoginPage } from "@/features/auth/LoginPage";
 import { ProtectedRoute } from "@/features/auth/ProtectedRoute";
+import { DocumentDetailPage } from "@/features/documents/detail/DocumentDetailPage";
 import { DocumentsPage } from "@/features/documents/DocumentsPage";
 
 const queryClient = new QueryClient({
@@ -32,6 +33,7 @@ export function App() {
             >
               <Route index element={<Navigate to="/documents" replace />} />
               <Route path="/documents" element={<DocumentsPage />} />
+              <Route path="/documents/:id" element={<DocumentDetailPage />} />
             </Route>
             <Route path="*" element={<Navigate to="/documents" replace />} />
           </Routes>

@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import uuid
+
 from fastapi.testclient import TestClient
+from sqlalchemy import delete
 from sqlalchemy.orm import Session
 
 from app.core.security import hash_password
@@ -38,110 +41,145 @@ def _login_headers(client: TestClient, email: str, password: str) -> dict[str, s
 
 
 def test_login_success_and_failure(client: TestClient, db: Session) -> None:
-    _create_user(db, "reviewer@example.com", "CorrectPass123!", role=UserRole.REVIEWER)
+    uid = uuid.uuid4().hex[:8]
+    email = f"test-reviewer-{uid}@example.com"
+    user = _create_user(db, email, "CorrectPass123!", role=UserRole.REVIEWER)
 
-    ok_resp = client.post(
-        "/api/auth/login",
-        data={"username": "REVIEWER@example.com", "password": "CorrectPass123!"},
-    )
-    assert ok_resp.status_code == 200
-    body = ok_resp.json()
-    assert "access_token" in body
-    assert body["token_type"] == "bearer"
+    try:
+        ok_resp = client.post(
+            "/api/auth/login",
+            data={"username": email.upper(), "password": "CorrectPass123!"},
+        )
+        assert ok_resp.status_code == 200
+        body = ok_resp.json()
+        assert "access_token" in body
+        assert body["token_type"] == "bearer"
 
-    me_resp = client.get(
-        "/api/auth/me",
-        headers={"Authorization": f"Bearer {body['access_token']}"},
-    )
-    assert me_resp.status_code == 200
-    assert me_resp.json()["data"]["email"] == "reviewer@example.com"
+        me_resp = client.get(
+            "/api/auth/me",
+            headers={"Authorization": f"Bearer {body['access_token']}"},
+        )
+        assert me_resp.status_code == 200
+        assert me_resp.json()["data"]["email"] == email.lower()
 
-    bad_resp = client.post(
-        "/api/auth/login",
-        data={"username": "reviewer@example.com", "password": "WrongPassword"},
-    )
-    assert bad_resp.status_code == 401
-    assert bad_resp.json()["error"]["code"] == "invalid_credentials"
-    assert bad_resp.headers.get("www-authenticate") == "Bearer"
+        bad_resp = client.post(
+            "/api/auth/login",
+            data={"username": email, "password": "WrongPassword"},
+        )
+        assert bad_resp.status_code == 401
+        assert bad_resp.json()["error"]["code"] == "invalid_credentials"
+        assert bad_resp.headers.get("www-authenticate") == "Bearer"
+    finally:
+        db.delete(user)
+        db.commit()
 
 
 def test_inactive_user_rejected(client: TestClient, db: Session) -> None:
+    uid = uuid.uuid4().hex[:8]
+    email = f"test-inactive-{uid}@example.com"
     user = _create_user(
         db,
-        "inactive@example.com",
+        email,
         "Pass123456!",
         role=UserRole.REVIEWER,
         is_active=True,
     )
-    headers = _login_headers(client, "inactive@example.com", "Pass123456!")
 
-    user.is_active = False
-    db.commit()
+    try:
+        headers = _login_headers(client, email, "Pass123456!")
 
-    login_resp = client.post(
-        "/api/auth/login",
-        data={"username": "inactive@example.com", "password": "Pass123456!"},
-    )
-    assert login_resp.status_code == 401
-    assert login_resp.json()["error"]["code"] == "account_inactive"
+        user.is_active = False
+        db.commit()
 
-    me_resp = client.get("/api/auth/me", headers=headers)
-    assert me_resp.status_code == 401
+        login_resp = client.post(
+            "/api/auth/login",
+            data={"username": email, "password": "Pass123456!"},
+        )
+        assert login_resp.status_code == 401
+        assert login_resp.json()["error"]["code"] == "account_inactive"
+
+        me_resp = client.get("/api/auth/me", headers=headers)
+        assert me_resp.status_code == 401
+    finally:
+        db.delete(user)
+        db.commit()
 
 
 def test_viewer_gets_403_on_upload_and_users(client: TestClient, db: Session) -> None:
-    _create_user(db, "viewer@example.com", "ViewerPass123!", role=UserRole.VIEWER)
-    headers = _login_headers(client, "viewer@example.com", "ViewerPass123!")
+    uid = uuid.uuid4().hex[:8]
+    email = f"test-viewer-{uid}@example.com"
+    user = _create_user(db, email, "ViewerPass123!", role=UserRole.VIEWER)
 
-    users_resp = client.get("/api/users", headers=headers)
-    assert users_resp.status_code == 403
+    try:
+        headers = _login_headers(client, email, "ViewerPass123!")
 
-    upload_resp = client.post(
-        "/api/documents",
-        headers=headers,
-        files=[("files", ("sample.csv", b"col1,col2\n1,2\n", "text/csv"))],
-    )
-    assert upload_resp.status_code == 403
-    assert upload_resp.json()["error"]["code"] == "forbidden"
+        users_resp = client.get("/api/users", headers=headers)
+        assert users_resp.status_code == 403
 
-    docs_resp = client.get("/api/documents", headers=headers)
-    assert docs_resp.status_code == 200
+        upload_resp = client.post(
+            "/api/documents",
+            headers=headers,
+            files=[("files", ("sample.csv", b"col1,col2\n1,2\n", "text/csv"))],
+        )
+        assert upload_resp.status_code == 403
+        assert upload_resp.json()["error"]["code"] == "forbidden"
+
+        docs_resp = client.get("/api/documents", headers=headers)
+        assert docs_resp.status_code == 200
+    finally:
+        db.delete(user)
+        db.commit()
 
 
 def test_admin_user_management(client: TestClient, db: Session) -> None:
-    _create_user(db, "admin@example.com", "AdminPass123!", role=UserRole.ADMIN)
-    headers = _login_headers(client, "admin@example.com", "AdminPass123!")
+    uid = uuid.uuid4().hex[:8]
+    admin_email = f"test-admin-{uid}@example.com"
+    new_user_email = f"test-newuser-{uid}@example.com"
+    admin = _create_user(db, admin_email, "AdminPass123!", role=UserRole.ADMIN)
+    created_id: str | None = None
 
-    create_resp = client.post(
-        "/api/users",
-        headers=headers,
-        json={
-            "email": "NewUser@Example.com",
-            "full_name": "New Reviewer",
-            "password": "ReviewerPass123!",
-            "role": "reviewer",
-            "is_active": True,
-        },
-    )
-    assert create_resp.status_code == 201
-    created = create_resp.json()["data"]
-    assert created["email"] == "newuser@example.com"
-    assert created["role"] == "reviewer"
+    try:
+        headers = _login_headers(client, admin_email, "AdminPass123!")
 
-    patch_resp = client.patch(
-        f"/api/users/{created['id']}",
-        headers=headers,
-        json={"role": "viewer", "full_name": "Updated Name", "is_active": False},
-    )
-    assert patch_resp.status_code == 200
-    patched = patch_resp.json()["data"]
-    assert patched["role"] == "viewer"
-    assert patched["full_name"] == "Updated Name"
-    assert patched["is_active"] is False
+        create_resp = client.post(
+            "/api/users",
+            headers=headers,
+            json={
+                "email": new_user_email.upper(),
+                "full_name": "New Reviewer",
+                "password": "ReviewerPass123!",
+                "role": "reviewer",
+                "is_active": True,
+            },
+        )
+        assert create_resp.status_code == 201
+        created = create_resp.json()["data"]
+        created_id = created["id"]
+        assert created["email"] == new_user_email.lower()
+        assert created["role"] == "reviewer"
 
-    list_resp = client.get("/api/users", headers=headers)
-    assert list_resp.status_code == 200
-    assert len(list_resp.json()["data"]) == 2
+        patch_resp = client.patch(
+            f"/api/users/{created['id']}",
+            headers=headers,
+            json={"role": "viewer", "full_name": "Updated Name", "is_active": False},
+        )
+        assert patch_resp.status_code == 200
+        patched = patch_resp.json()["data"]
+        assert patched["role"] == "viewer"
+        assert patched["full_name"] == "Updated Name"
+        assert patched["is_active"] is False
+
+        list_resp = client.get("/api/users", headers=headers)
+        assert list_resp.status_code == 200
+        emails = [u["email"] for u in list_resp.json()["data"]]
+        assert len(list_resp.json()["data"]) >= 2
+        assert admin_email.lower() in emails
+        assert new_user_email.lower() in emails
+    finally:
+        if created_id:
+            db.execute(delete(User).where(User.id == uuid.UUID(created_id)))
+        db.delete(admin)
+        db.commit()
 
 
 def test_unauthenticated_and_malformed_tokens_rejected(client: TestClient) -> None:
@@ -174,4 +212,3 @@ def test_unauthenticated_and_malformed_tokens_rejected(client: TestClient) -> No
         headers={"Authorization": "Basic dXNlcjpwYXNz"},
     )
     assert resp_basic.status_code == 401
-
