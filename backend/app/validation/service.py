@@ -85,6 +85,7 @@ def run_invoice_validation(
     document_id: uuid.UUID,
     app_settings: Optional[Settings] = None,
     reference_date: Optional[date] = None,
+    update_review_status: bool = True,
 ) -> list[ValidationResult]:
     """Run deterministic financial validation + duplicate check and replace validation_results in one transaction."""
     cfg = app_settings or default_settings
@@ -138,7 +139,8 @@ def run_invoice_validation(
 
     doc = session.get(Document, document_id)
     if doc is not None:
-        doc.review_status = determine_review_status(items)
+        if update_review_status:
+            doc.review_status = determine_review_status(items)
         doc.updated_at = now
 
     session.flush()

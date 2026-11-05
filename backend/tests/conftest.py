@@ -7,7 +7,7 @@ import sys
 
 from fastapi.testclient import TestClient
 import pytest
-from sqlalchemy import create_engine, event, func, pool, select, text
+from sqlalchemy import create_engine, event, func, select, text
 from sqlalchemy.orm import Session, sessionmaker
 
 BACKEND_DIR = Path(__file__).resolve().parent.parent
@@ -19,6 +19,7 @@ from app.db.base import Base
 from app.db.session import get_db
 import app.models  # noqa: F401
 from app.main import app
+from app.repositories.user_repo import ensure_roles_seeded
 
 FORBIDDEN_SCHEMAS = {
     "public",
@@ -79,9 +80,14 @@ TestingSessionLocal = sessionmaker(
 @pytest.fixture(scope="session", autouse=True)
 def setup_test_schema() -> Generator[None, None, None]:
     with test_engine.begin() as conn:
-        conn.execute(text(f'CREATE SCHEMA IF NOT EXISTS "{TEST_SCHEMA}"'))
+        conn.execute(text(f'DROP SCHEMA IF EXISTS "{TEST_SCHEMA}" CASCADE'))
+        conn.execute(text(f'CREATE SCHEMA "{TEST_SCHEMA}"'))
 
     Base.metadata.create_all(bind=test_engine)
+
+    with TestingSessionLocal() as session:
+        ensure_roles_seeded(session)
+        session.commit()
 
     with test_engine.connect() as conn:
         current = conn.execute(select(func.current_schema())).scalar_one()
@@ -105,11 +111,11 @@ def truncate_tables(request: pytest.FixtureRequest) -> Generator[None, None, Non
 
     # Truncate tables before the test starts so the test runs in isolation,
     # but do NOT truncate afterwards so the final DB state remains inspectable.
-    # Exclude shared tables (users) from unscoped truncate to preserve seeded/non-test data.
+    # Exclude shared tables (users, roles) from unscoped truncate to preserve seeded data.
     table_names = [
         f'"{table.name}"'
         for table in reversed(Base.metadata.sorted_tables)
-        if table.name != "users"
+        if table.name not in ("users", "roles")
     ]
     if table_names:
         with test_engine.begin() as conn:

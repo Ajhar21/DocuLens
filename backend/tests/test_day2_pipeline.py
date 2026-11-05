@@ -25,8 +25,9 @@ from app.models.document import Document, DocumentStatus, ReviewStatus
 from app.models.extraction import DocumentCorrection, ExtractedInvoice
 from app.models.job import JobStatus, JobType, ProcessingJob
 from app.models.parse_result import DocumentParseResult
-from app.models.user import User, UserRole
+from app.models.user import RoleName, User
 from app.models.validation import ValidationResult
+from app.repositories.user_repo import get_role_by_name
 from app.services import job_queue
 from app.worker.runner import process_one_job
 
@@ -43,12 +44,13 @@ def reset_ai_overrides():
 _day2_user_ids: list[uuid.UUID] = []
 
 
-def _create_user(db: Session, role: UserRole = UserRole.REVIEWER) -> User:
+def _create_user(db: Session, role: RoleName = RoleName.FINANCE_EXECUTIVE) -> User:
+    role_obj = get_role_by_name(db, role.value)
     user = User(
-        email=f"test-{role.value}-{uuid.uuid4().hex[:8]}@example.com",
+        email=f"test-{role.value.lower()}-{uuid.uuid4().hex[:8]}@example.com",
         full_name=f"Test {role.value.title()}",
         password_hash=hash_password("Pass123!"),
-        role=role.value,
+        role_id=role_obj.id,
         is_active=True,
     )
     db.add(user)
@@ -70,7 +72,7 @@ def cleanup_day2_test_users(db: Session) -> Generator[None, None, None]:
 
 def _auth_headers(client: TestClient, user: User) -> dict[str, str]:
     resp = client.post(
-        "/api/auth/login",
+        "/api/v1/auth/login",
         data={"username": user.email, "password": "Pass123!"},
     )
     assert resp.status_code == 200
@@ -91,7 +93,7 @@ def test_parse_complete_enqueues_both_extraction_and_embedding_once_and_runs_hap
     db: Session,
     test_sessionmaker: sessionmaker[Session],
 ) -> None:
-    user = _create_user(db, UserRole.REVIEWER)
+    user = _create_user(db, RoleName.FINANCE_EXECUTIVE)
     headers = _auth_headers(client, user)
 
     fake_llm = FakeLLMProvider([DEFAULT_CANNED_INVOICE])
@@ -365,7 +367,7 @@ def test_duplicate_invoice_across_different_files_and_embedding_idempotency_and_
     db: Session,
     test_sessionmaker: sessionmaker[Session],
 ) -> None:
-    user = _create_user(db, UserRole.REVIEWER)
+    user = _create_user(db, RoleName.FINANCE_EXECUTIVE)
     headers = _auth_headers(client, user)
 
     # First invoice: "Acme, Industrial Supplies Ltd." / "inv-2026-001"
@@ -472,7 +474,7 @@ def test_spreadsheet_extraction_serialization_and_null_page_number_chunks(
 ) -> None:
     from sqlalchemy import func
 
-    user = _create_user(db, UserRole.REVIEWER)
+    user = _create_user(db, RoleName.FINANCE_EXECUTIVE)
     headers = _auth_headers(client, user)
 
     fake_llm = FakeLLMProvider([DEFAULT_CANNED_INVOICE])

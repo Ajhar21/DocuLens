@@ -7,6 +7,12 @@ import { LoginPage } from "@/features/auth/LoginPage";
 import { ProtectedRoute } from "@/features/auth/ProtectedRoute";
 import { DocumentDetailPage } from "@/features/documents/detail/DocumentDetailPage";
 import { DocumentsPage } from "@/features/documents/DocumentsPage";
+import { ReconciliationDetailPage } from "@/features/reconciliation/ReconciliationDetailPage";
+import { ReconciliationListPage } from "@/features/reconciliation/ReconciliationListPage";
+import { ReconciliationNewPage } from "@/features/reconciliation/ReconciliationNewPage";
+import { ReviewDetailPage } from "@/features/review/ReviewDetailPage";
+import { ReviewQueuePage } from "@/features/review/ReviewQueuePage";
+import { SearchPage } from "@/features/search/SearchPage";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -34,6 +40,54 @@ export function App() {
               <Route index element={<Navigate to="/documents" replace />} />
               <Route path="/documents" element={<DocumentsPage />} />
               <Route path="/documents/:id" element={<DocumentDetailPage />} />
+              <Route
+                path="/review"
+                element={
+                  <ProtectedRoute requiredPermission="extraction:view">
+                    <ReviewQueuePage />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/review/:documentId"
+                element={
+                  <ProtectedRoute requiredPermission="extraction:view">
+                    <ReviewDetailPage />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/reconciliation"
+                element={
+                  <ProtectedRoute requiredPermission="reconciliation:view">
+                    <ReconciliationListPage />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/reconciliation/new"
+                element={
+                  <ProtectedRoute requiredPermission="reconciliation:run">
+                    <ReconciliationNewPage />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/reconciliation/:id"
+                element={
+                  <ProtectedRoute requiredPermission="reconciliation:view">
+                    <ReconciliationDetailPage />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/search"
+                element={
+                  <ProtectedRoute requiredPermission="search:use">
+                    <SearchPage />
+                  </ProtectedRoute>
+                }
+              />
             </Route>
             <Route path="*" element={<Navigate to="/documents" replace />} />
           </Routes>

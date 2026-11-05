@@ -144,6 +144,70 @@ export async function apiRequest<T>(
   return parsedBody as T;
 }
 
+/**
+ * Stream binary file bytes (PDF, images) as a Blob using Bearer auth.
+ */
+export async function apiDownloadBlob(
+  path: string,
+  options: Omit<RequestOptions, "json" | "formUrlEncoded" | "rawResponse"> = {},
+): Promise<Blob> {
+  const {
+    method = "GET",
+    query,
+    auth = true,
+    signal,
+    timeoutMs = 30_000,
+  } = options;
+
+  const headers = new Headers();
+  if (auth) {
+    const token = getToken();
+    if (token) {
+      headers.set("Authorization", `Bearer ${token}`);
+    }
+  }
+
+  const timeoutController = new AbortController();
+  const timer = window.setTimeout(() => timeoutController.abort(), timeoutMs);
+  const combinedSignal = signal
+    ? AbortSignal.any([signal, timeoutController.signal])
+    : timeoutController.signal;
+
+  let response: Response;
+  try {
+    response = await window.fetch(buildUrl(path, query), {
+      method,
+      headers,
+      signal: combinedSignal,
+    });
+  } catch (err) {
+    window.clearTimeout(timer);
+    if (signal?.aborted) throw err;
+    throw createNetworkError();
+  } finally {
+    window.clearTimeout(timer);
+  }
+
+  if (!response.ok) {
+    let parsedBody: unknown = null;
+    const contentType = response.headers.get("content-type") ?? "";
+    if (contentType.includes("application/json")) {
+      try {
+        parsedBody = await response.json();
+      } catch {
+        parsedBody = null;
+      }
+    }
+    const apiErr = normalizeApiError(response.status, parsedBody);
+    if (response.status === 401 && auth) {
+      handleUnauthorized();
+    }
+    throw apiErr;
+  }
+
+  return response.blob();
+}
+
 export interface UploadWithProgressOptions {
   formData: FormData;
   onProgress?: (percent: number) => void;

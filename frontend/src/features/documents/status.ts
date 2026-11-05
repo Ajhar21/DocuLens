@@ -80,6 +80,20 @@ export const REVIEW_STATUS_META: Record<ReviewStatus, StatusPresentation> = {
     badgeClassName:
       "border-amber-500/30 bg-amber-50 text-amber-800 dark:bg-amber-950/40 dark:text-amber-300",
   },
+  in_review: {
+    label: "In Review",
+    description: "Document detail under active inspection",
+    icon: Clock,
+    badgeClassName:
+      "border-blue-500/30 bg-blue-50 text-blue-800 dark:bg-blue-950/40 dark:text-blue-300",
+  },
+  corrected: {
+    label: "Corrected",
+    description: "Header corrections applied; awaiting manager approval",
+    icon: CheckCircle2,
+    badgeClassName:
+      "border-purple-500/30 bg-purple-50 text-purple-800 dark:bg-purple-950/40 dark:text-purple-300",
+  },
   approved: {
     label: "Approved",
     description: "Verified and approved by reviewer",

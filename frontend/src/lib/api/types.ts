@@ -1,32 +1,40 @@
-export type UserRole = "admin" | "reviewer" | "viewer";
+import type { components } from "./schema";
+
+export type Schemas = components["schemas"];
+
+// ---------------------------------------------------------------------------
+// Canonical Role & Auth Types (from OpenAPI schema)
+// ---------------------------------------------------------------------------
+
+export type RoleName = Schemas["RoleName"];
+
+/** Legacy alias union for backwards compatibility while canonicalizing on RoleName */
+export type UserRole = RoleName | "admin" | "reviewer" | "viewer";
 
 export interface User {
   id: string;
   email: string;
   full_name: string;
-  role: UserRole;
+  role: RoleName;
   is_active: boolean;
   created_at: string;
+  updated_at?: string | null;
 }
 
-export interface UserSummary {
-  id: string;
-  full_name: string;
-}
+export type UserSummary = Schemas["UserSummary"];
 
 export interface TokenResponse {
   access_token: string;
   token_type: "bearer";
 }
 
+// ---------------------------------------------------------------------------
+// Document & Job Types (Day 1 - Day 2)
+// ---------------------------------------------------------------------------
+
 export type DocumentStatus = "uploaded" | "processing" | "parsed" | "failed";
 
-export type ReviewStatus =
-  | "pending"
-  | "needs_review"
-  | "approved"
-  | "rejected"
-  | "not_required";
+export type ReviewStatus = Schemas["ReviewStatus"];
 
 export type JobType = "parse" | "extraction" | "embedding";
 
@@ -66,37 +74,12 @@ export interface ListDocumentsParams {
   review_status?: ReviewStatus;
 }
 
-export interface FileUploadItemResult {
-  filename: string;
-  status: "accepted" | "rejected";
-  document_id: string | null;
-  job_id: string | null;
-  reason: string | null;
-}
+export type FileUploadItemResult = Schemas["FileUploadItemResult"];
+export type BatchUploadResponse = Schemas["BatchUploadResponse"];
+export type UploadPolicy = Schemas["UploadPolicy"];
 
-export interface BatchUploadResponse {
-  results: FileUploadItemResult[];
-  accepted_count: number;
-  rejected_count: number;
-}
-
-export interface UploadPolicy {
-  max_upload_mb: number;
-  max_upload_bytes: number;
-  allowed_extensions: string[];
-  accepted_content_types: string[];
-}
-
-export interface ErrorDetail {
-  field: string | null;
-  message: string;
-  type: string | null;
-}
-
-export interface ErrorInfo {
-  code: string;
-  details: ErrorDetail[];
-}
+export type ErrorDetail = Schemas["ErrorDetail"];
+export type ErrorInfo = Schemas["ErrorInfo"];
 
 export interface APIResponse<T> {
   success: boolean;
@@ -104,10 +87,6 @@ export interface APIResponse<T> {
   data: T | null;
   error: ErrorInfo | null;
 }
-
-// ---------------------------------------------------------------------------
-// Day 2 Detail Schemas (mirroring backend/app/schemas/document.py & job.py)
-// ---------------------------------------------------------------------------
 
 export interface JobRead {
   id: string;
@@ -139,46 +118,12 @@ export interface ParseSummary {
   created_at: string;
 }
 
-export interface InvoiceLineItemRead {
-  id: string;
-  line_no: number;
-  description: string | null;
-  quantity: string | number | null;
-  unit_price: string | number | null;
-  amount: string | number | null;
-}
-
-export interface ExtractedInvoiceRead {
-  id: string;
-  document_id: string;
-  invoice_number: string | null;
-  invoice_date: string | null;
-  supplier_name: string | null;
-  customer_name: string | null;
-  subtotal: string | number | null;
-  tax: string | number | null;
-  total: string | number | null;
+export type InvoiceLineItemRead = Schemas["InvoiceLineItemRead"];
+export type ExtractedInvoiceRead = Schemas["ExtractedInvoiceRead"] & {
   discount?: string | number | null;
   shipping?: string | number | null;
-  currency: string | null;
-  extraction_metadata: Record<string, unknown>;
-  line_items: InvoiceLineItemRead[];
-  created_at: string;
-  updated_at: string;
-}
-
-export interface ValidationResultRead {
-  id: string;
-  document_id: string;
-  validation_code: string;
-  field_name: string | null;
-  severity: ValidationSeverity | string;
-  message: string;
-  expected_value: string | null;
-  actual_value: string | null;
-  status: ValidationStatus | string;
-  created_at: string;
-}
+};
+export type ValidationResultRead = Schemas["ValidationResultRead"];
 
 export interface DocumentDetailRead extends DocumentItem {
   review_status: ReviewStatus | null;
@@ -188,3 +133,33 @@ export interface DocumentDetailRead extends DocumentItem {
   extracted_invoice: ExtractedInvoiceRead | null;
   validation_results: ValidationResultRead[];
 }
+
+// ---------------------------------------------------------------------------
+// Day 3 Schemas: Review, Reconciliation, Search (re-exported from OpenAPI)
+// ---------------------------------------------------------------------------
+
+export type ReviewQueueItem = Schemas["ReviewQueueItem"];
+export type ReviewQueuePage = Schemas["ReviewQueuePage"];
+export type ReviewDetailRead = Schemas["ReviewDetailRead"];
+export interface CorrectionItem {
+  field_name: string;
+  corrected_value?: unknown;
+  reason?: string | null;
+}
+export type DocumentCorrectionRead = Schemas["DocumentCorrectionRead"];
+export type ApprovePayload = Schemas["ApprovePayload"];
+export type RejectPayload = Schemas["RejectPayload"];
+
+export type ReconcilePdfPdfRequest = Schemas["ReconcilePdfPdfRequest"];
+export type ReconcilePdfExcelRequest = Schemas["ReconcilePdfExcelRequest"];
+export type ReconciliationJobSummary = Schemas["ReconciliationJobSummary"];
+export type ReconciliationJobDetail = Schemas["ReconciliationJobDetail"];
+export type ReconciliationJobPage = Schemas["ReconciliationJobPage"];
+export type ReconciliationJobPagination = Schemas["ReconciliationJobPagination"];
+export type ReconciliationResultRead = Schemas["ReconciliationResultRead"];
+export type ExcelSheetsResponse = Schemas["ExcelSheetsResponse"];
+
+export type SearchResponse = Schemas["SearchResponse"];
+export type SearchHit = Schemas["SearchHit"];
+export type SearchDocumentSummary = Schemas["SearchDocumentSummary"];
+export type SearchInvoiceSummary = Schemas["SearchInvoiceSummary"];

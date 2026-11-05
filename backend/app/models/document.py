@@ -28,6 +28,8 @@ class DocumentStatus(str, enum.Enum):
 class ReviewStatus(str, enum.Enum):
     PENDING = "pending"
     NEEDS_REVIEW = "needs_review"
+    IN_REVIEW = "in_review"
+    CORRECTED = "corrected"
     APPROVED = "approved"
     REJECTED = "rejected"
     NOT_REQUIRED = "not_required"
@@ -41,7 +43,7 @@ class Document(Base):
             name="ck_documents_status",
         ),
         CheckConstraint(
-            "review_status IN ('pending', 'needs_review', 'approved', 'rejected', 'not_required')",
+            "review_status IN ('pending', 'needs_review', 'in_review', 'corrected', 'approved', 'rejected', 'not_required')",
             name="ck_documents_review_status",
         ),
     )
@@ -62,6 +64,15 @@ class Document(Base):
     )
     error: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     uploaded_by: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
+    reviewed_by: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    reviewed_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         default=lambda: datetime.now(timezone.utc),
@@ -82,7 +93,15 @@ class Document(Base):
     def processing_status(self, value: str) -> None:
         self.status = value
 
-    uploader: Mapped[User] = relationship("User", back_populates="documents")
+    uploader: Mapped[User] = relationship(
+        "User",
+        back_populates="documents",
+        foreign_keys=[uploaded_by],
+    )
+    reviewer: Mapped[Optional[User]] = relationship(
+        "User",
+        foreign_keys=[reviewed_by],
+    )
     jobs: Mapped[List[ProcessingJob]] = relationship("ProcessingJob", back_populates="document", cascade="all, delete-orphan")
     parse_result: Mapped[Optional[DocumentParseResult]] = relationship("DocumentParseResult", back_populates="document", uselist=False, cascade="all, delete-orphan")
     extracted_invoice: Mapped[Optional[ExtractedInvoice]] = relationship("ExtractedInvoice", back_populates="document", uselist=False, cascade="all, delete-orphan")

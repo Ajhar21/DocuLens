@@ -1,32 +1,31 @@
-"""Document domain service: upload, listing, detail, reprocessing, and upload policy.
+"""Document domain service: upload, listing, detail, status, extraction, validation, reprocessing, and upload policy.
 
-Routers stay thin HTTP adapters; all persistence and business rules live here.
+Routers stay thin HTTP adapters; all persistence, visibility filtering, and business rules live here.
 """
 
 from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Union
 import uuid
 
 from fastapi import UploadFile
-from sqlalchemy import func, select
-from sqlalchemy.orm import Session, selectinload
+from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.core.errors import AppError, ConflictError, NotFoundError
+from app.core.responses import ErrorDetail
 from app.models.document import Document, DocumentStatus, ReviewStatus
-from app.models.extraction import ExtractedInvoice
-from app.models.job import JobType, ProcessingJob
-from app.models.parse_result import DocumentParseResult
+from app.models.job import JobType
 from app.models.user import User
-from app.models.validation import ValidationResult
+from app.repositories import document_repo
 from app.schemas.document import (
     BatchUploadResponse,
     DocumentDetailRead,
     DocumentPage,
     DocumentRead,
+    DocumentStatusRead,
     ExtractedInvoiceRead,
     FileUploadItemResult,
     ParseSummary,
@@ -35,6 +34,7 @@ from app.schemas.document import (
 )
 from app.schemas.job import JobRead
 from app.services import job_queue
+from app.services.audit_service import AuditService
 from app.services.storage import (
     ALLOWED_EXTENSIONS,
     EXTENSION_CONTENT_TYPES,
@@ -50,6 +50,68 @@ _ALLOWED_REPROCESS_STAGES = {
     JobType.EMBEDDING.value,
 }
 
+_DOC_STATUS_ALIASES: dict[str, str] = {
+    "uploaded": DocumentStatus.UPLOADED.value,
+    "pending": DocumentStatus.UPLOADED.value,
+    "processing": DocumentStatus.PROCESSING.value,
+    "parsed": DocumentStatus.PARSED.value,
+    "completed": DocumentStatus.PARSED.value,
+    "failed": DocumentStatus.FAILED.value,
+}
+
+_REVIEW_STATUS_ALIASES: dict[str, str] = {
+    "pending": ReviewStatus.PENDING.value,
+    "needs_review": ReviewStatus.NEEDS_REVIEW.value,
+    "in_review": "in_review",
+    "corrected": "corrected",
+    "approved": ReviewStatus.APPROVED.value,
+    "rejected": ReviewStatus.REJECTED.value,
+    "not_required": ReviewStatus.NOT_REQUIRED.value,
+}
+
+
+def normalize_document_status_filter(
+    raw: Optional[Union[str, DocumentStatus]],
+) -> Optional[str]:
+    if raw is None:
+        return None
+    val = raw.value if isinstance(raw, DocumentStatus) else str(raw).strip().lower()
+    if not val:
+        return None
+    mapped = _DOC_STATUS_ALIASES.get(val)
+    if mapped is None:
+        raise AppError(
+            422,
+            "validation_error",
+            f"Invalid document status filter '{raw}'",
+            details=[ErrorDetail(field="status", message=f"Invalid document status '{raw}'")],
+        )
+    return mapped
+
+
+def normalize_review_status_filter(
+    raw: Optional[Union[str, ReviewStatus]],
+) -> Optional[str]:
+    if raw is None:
+        return None
+    val = raw.value if isinstance(raw, ReviewStatus) else str(raw).strip().lower()
+    if not val:
+        return None
+    mapped = _REVIEW_STATUS_ALIASES.get(val)
+    if mapped is None:
+        raise AppError(
+            422,
+            "validation_error",
+            f"Invalid review_status filter '{raw}'",
+            details=[
+                ErrorDetail(
+                    field="review_status",
+                    message=f"Invalid review_status '{raw}'",
+                )
+            ],
+        )
+    return mapped
+
 
 def get_upload_policy() -> UploadPolicy:
     return UploadPolicy(
@@ -64,7 +126,12 @@ def _rejected(filename: str, reason: str) -> FileUploadItemResult:
     return FileUploadItemResult(filename=filename, status="rejected", reason=reason)
 
 
-def _store_one(db: Session, upload: UploadFile, uploader: User, max_bytes: int) -> FileUploadItemResult:
+def _store_one(
+    db: Session,
+    upload: UploadFile,
+    uploader: User,
+    max_bytes: int,
+) -> FileUploadItemResult:
     raw_filename = upload.filename or "unnamed"
     ext = Path(raw_filename).suffix.lower()
 
@@ -85,7 +152,6 @@ def _store_one(db: Session, upload: UploadFile, uploader: User, max_bytes: int) 
     except StorageValidationError as exc:
         return _rejected(raw_filename, str(exc))
     except Exception:
-        # Never leak internal exception text to clients; details go to the log.
         logger.exception("Unexpected error saving uploaded file %s", raw_filename)
         return _rejected(raw_filename, "The file could not be stored. Please try again.")
 
@@ -111,6 +177,23 @@ def _store_one(db: Session, upload: UploadFile, uploader: User, max_bytes: int) 
             document_id=doc.id,
             job_type=JobType.PARSE.value,
             commit=False,
+        )
+
+        AuditService.record(
+            db,
+            user_id=uploader.id,
+            action="DOCUMENT_UPLOADED",
+            entity_type="DOCUMENT",
+            entity_id=doc.id,
+            old_values=None,
+            new_values={
+                "original_filename": raw_filename,
+                "file_ext": ext,
+                "size_bytes": stored_info.size_bytes,
+                "sha256": stored_info.sha256,
+                "status": doc.status,
+                "job_id": str(job.id),
+            },
         )
         db.commit()
         db.refresh(doc)
@@ -143,30 +226,21 @@ def upload_documents(db: Session, files: list[UploadFile], uploader: User) -> Ba
 
 def list_documents(
     db: Session,
+    current_user: User,
     limit: int,
     offset: int,
-    status_filter: Optional[DocumentStatus] = None,
-    review_status_filter: Optional[ReviewStatus] = None,
+    status_filter: Optional[Union[str, DocumentStatus]] = None,
+    review_status_filter: Optional[Union[str, ReviewStatus]] = None,
 ) -> DocumentPage:
-    base = select(Document)
-    count_stmt = select(func.count()).select_from(Document)
-    if status_filter is not None:
-        base = base.where(Document.status == status_filter.value)
-        count_stmt = count_stmt.where(Document.status == status_filter.value)
-    if review_status_filter is not None:
-        base = base.where(Document.review_status == review_status_filter.value)
-        count_stmt = count_stmt.where(Document.review_status == review_status_filter.value)
-
-    total = db.execute(count_stmt).scalar_one()
-    docs = (
-        db.execute(
-            base.options(selectinload(Document.uploader))
-            .order_by(Document.created_at.desc(), Document.id.desc())
-            .limit(limit)
-            .offset(offset)
-        )
-        .scalars()
-        .all()
+    status_val = normalize_document_status_filter(status_filter)
+    review_val = normalize_review_status_filter(review_status_filter)
+    docs, total = document_repo.list_visible_documents(
+        db,
+        current_user,
+        limit=limit,
+        offset=offset,
+        status_value=status_val,
+        review_status_value=review_val,
     )
     return DocumentPage(
         items=[DocumentRead.model_validate(d) for d in docs],
@@ -176,35 +250,27 @@ def list_documents(
     )
 
 
-def get_document(db: Session, document_id: uuid.UUID) -> Document:
-    doc = db.execute(
-        select(Document)
-        .options(selectinload(Document.uploader))
-        .where(Document.id == document_id)
-    ).scalar_one_or_none()
+def get_document(
+    db: Session,
+    document_id: uuid.UUID,
+    current_user: User,
+) -> Document:
+    doc = document_repo.get_visible_document(db, document_id, current_user)
     if doc is None:
         raise NotFoundError("Document not found")
     return doc
 
 
-def get_document_detail(db: Session, document_id: uuid.UUID) -> DocumentDetailRead:
-    doc = get_document(db, document_id)
-
-    all_jobs = list(
-        db.execute(
-            select(ProcessingJob)
-            .where(ProcessingJob.document_id == document_id)
-            .order_by(ProcessingJob.created_at.desc(), ProcessingJob.id.desc())
-        )
-        .scalars()
-        .all()
-    )
+def get_document_detail(
+    db: Session,
+    document_id: uuid.UUID,
+    current_user: User,
+) -> DocumentDetailRead:
+    doc = get_document(db, document_id, current_user)
+    all_jobs = document_repo.get_document_jobs(db, document_id)
     latest_job = all_jobs[0] if all_jobs else None
 
-    parse_row = db.execute(
-        select(DocumentParseResult).where(DocumentParseResult.document_id == document_id)
-    ).scalar_one_or_none()
-
+    parse_row = document_repo.get_document_parse_result(db, document_id)
     parse_summary: Optional[ParseSummary] = None
     if parse_row is not None:
         pages_list = parse_row.pages if isinstance(parse_row.pages, list) else []
@@ -220,21 +286,8 @@ def get_document_detail(db: Session, document_id: uuid.UUID) -> DocumentDetailRe
             created_at=parse_row.created_at,
         )
 
-    invoice_row = db.execute(
-        select(ExtractedInvoice)
-        .options(selectinload(ExtractedInvoice.line_items))
-        .where(ExtractedInvoice.document_id == document_id)
-    ).scalar_one_or_none()
-
-    validation_rows = list(
-        db.execute(
-            select(ValidationResult)
-            .where(ValidationResult.document_id == document_id)
-            .order_by(ValidationResult.created_at.asc(), ValidationResult.id.asc())
-        )
-        .scalars()
-        .all()
-    )
+    invoice_row = document_repo.get_document_invoice(db, document_id)
+    validation_rows = document_repo.get_document_validations(db, document_id)
 
     base_doc = DocumentRead.model_validate(doc)
     return DocumentDetailRead(
@@ -251,12 +304,56 @@ def get_document_detail(db: Session, document_id: uuid.UUID) -> DocumentDetailRe
     )
 
 
+def get_document_status(
+    db: Session,
+    document_id: uuid.UUID,
+    current_user: User,
+) -> DocumentStatusRead:
+    doc = get_document(db, document_id, current_user)
+    all_jobs = document_repo.get_document_jobs(db, document_id)
+    latest_job = all_jobs[0] if all_jobs else None
+    doc_status = DocumentStatus(doc.status)
+    return DocumentStatusRead(
+        id=doc.id,
+        status=doc_status,
+        processing_status=doc_status,
+        review_status=ReviewStatus(doc.review_status) if doc.review_status in {r.value for r in ReviewStatus} else None,
+        error=doc.error,
+        latest_job=JobRead.model_validate(latest_job) if latest_job else None,
+        processing_jobs=[JobRead.model_validate(j) for j in all_jobs],
+        updated_at=doc.updated_at,
+    )
+
+
+def get_document_extraction(
+    db: Session,
+    document_id: uuid.UUID,
+    current_user: User,
+) -> Optional[ExtractedInvoiceRead]:
+    doc = get_document(db, document_id, current_user)
+    invoice_row = document_repo.get_document_invoice(db, doc.id)
+    if invoice_row is None:
+        return None
+    return ExtractedInvoiceRead.model_validate(invoice_row)
+
+
+def get_document_validation(
+    db: Session,
+    document_id: uuid.UUID,
+    current_user: User,
+) -> list[ValidationResultRead]:
+    doc = get_document(db, document_id, current_user)
+    validation_rows = document_repo.get_document_validations(db, doc.id)
+    return [ValidationResultRead.model_validate(v) for v in validation_rows]
+
+
 def reprocess_document(
     db: Session,
     document_id: uuid.UUID,
     stage: str,
+    current_user: User,
 ) -> JobRead:
-    doc = get_document(db, document_id)
+    doc = get_document(db, document_id, current_user)
 
     normalized_stage = (stage or "").strip().lower()
     if normalized_stage not in _ALLOWED_REPROCESS_STAGES:
@@ -266,9 +363,7 @@ def reprocess_document(
             "Invalid stage parameter. Allowed values: 'extraction', 'embedding'.",
         )
 
-    parse_row = db.execute(
-        select(DocumentParseResult.id).where(DocumentParseResult.document_id == doc.id)
-    ).scalar_one_or_none()
+    parse_row = document_repo.get_document_parse_result(db, doc.id)
     if parse_row is None:
         raise ConflictError(
             "Cannot reprocess extraction or embedding before document parsing has succeeded."
@@ -283,8 +378,12 @@ def reprocess_document(
     return JobRead.model_validate(job)
 
 
-def resolve_document_file(db: Session, document_id: uuid.UUID) -> tuple[Document, Path]:
-    doc = get_document(db, document_id)
+def resolve_document_file(
+    db: Session,
+    document_id: uuid.UUID,
+    current_user: User,
+) -> tuple[Document, Path]:
+    doc = get_document(db, document_id, current_user)
     try:
         file_path = storage_service.resolve_path(doc.stored_path)
     except ValueError:

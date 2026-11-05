@@ -131,3 +131,16 @@ class DocumentDetailRead(DocumentRead):
     parse_summary: Optional[ParseSummary] = None
     extracted_invoice: Optional[ExtractedInvoiceRead] = None
     validation_results: list[ValidationResultRead] = Field(default_factory=list)
+
+
+class DocumentStatusRead(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: uuid.UUID
+    status: DocumentStatus
+    processing_status: DocumentStatus
+    review_status: Optional[ReviewStatus] = None
+    error: Optional[str] = None
+    latest_job: Optional[JobRead] = None
+    processing_jobs: list[JobRead] = Field(default_factory=list)
+    updated_at: datetime

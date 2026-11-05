@@ -11,7 +11,8 @@ from sqlalchemy.orm import Session
 from app.core.security import hash_password
 from app.models.document import Document
 from app.models.job import ProcessingJob
-from app.models.user import User, UserRole
+from app.models.user import RoleName, User
+from app.repositories.user_repo import get_role_by_name
 
 _created_test_user_ids: list[uuid.UUID] = []
 
@@ -19,11 +20,12 @@ _created_test_user_ids: list[uuid.UUID] = []
 def _reviewer_headers(client: TestClient, db: Session) -> dict[str, str]:
     uid = uuid.uuid4().hex[:8]
     email = f"test-uploader-{uid}@example.com"
+    role_obj = get_role_by_name(db, RoleName.FINANCE_EXECUTIVE.value)
     user = User(
         email=email,
         full_name="Uploader",
         password_hash=hash_password("UploadPass123!"),
-        role=UserRole.REVIEWER.value,
+        role_id=role_obj.id,
         is_active=True,
     )
     db.add(user)
@@ -32,7 +34,7 @@ def _reviewer_headers(client: TestClient, db: Session) -> dict[str, str]:
     _created_test_user_ids.append(user.id)
 
     resp = client.post(
-        "/api/auth/login",
+        "/api/v1/auth/login",
         data={"username": email, "password": "UploadPass123!"},
     )
     assert resp.status_code == 200

@@ -19,5 +19,9 @@ export const ROLE_LABELS: Record<UserRole, string> = {
   admin: "Admin",
   reviewer: "Reviewer",
   viewer: "Viewer",
+  FINANCE_EXECUTIVE: "Finance Executive",
+  FINANCE_MANAGER: "Finance Manager",
+  ACCOUNTS_AUDIT: "Accounts Audit",
+  SYSTEM_ADMIN: "System Admin",
 };
 

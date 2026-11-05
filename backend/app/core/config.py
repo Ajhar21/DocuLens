@@ -19,6 +19,7 @@ class Settings(BaseSettings):
     TEST_SCHEMA: str = Field(default="doculens_test", description="Isolated test schema")
     JWT_SECRET: str = Field(..., description="Secret key for JWT generation and verification")
     JWT_EXPIRE_MINUTES: int = Field(default=60, description="JWT expiration in minutes")
+    REFRESH_TOKEN_EXPIRE_DAYS: int = Field(default=7, ge=1, le=90, description="Refresh token expiration in days")
     STORAGE_DIR: str = Field(default=str(BACKEND_DIR / "storage"), description="Base storage directory for uploaded files")
     MAX_UPLOAD_MB: int = Field(default=25, description="Maximum upload size in megabytes")
     WORKER_POLL_SECONDS: float = Field(default=2.0, description="Worker loop polling interval in seconds")
@@ -42,6 +43,23 @@ class Settings(BaseSettings):
     EMBEDDING_DIM: int = Field(default=MIGRATION_EMBEDDING_DIM, description="Vector embedding dimensionality")
     EMBEDDING_BATCH_SIZE: int = Field(default=32, ge=1, le=100, description="Batch size for embedding API calls")
     VALIDATION_TOLERANCE: Decimal = Field(default=Decimal("0.01"), description="Monetary comparison tolerance in Decimal")
+    RECONCILIATION_AMOUNT_TOLERANCE_ABSOLUTE: Decimal = Field(
+        default=Decimal("0.05"),
+        description="Absolute amount tolerance for reconciliation",
+    )
+    RECONCILIATION_AMOUNT_TOLERANCE_PERCENTAGE: Decimal = Field(
+        default=Decimal("0.001"),
+        description="Percentage amount tolerance for reconciliation (0.001 = 0.1%)",
+    )
+    RECONCILIATION_DATE_TOLERANCE_DAYS: int = Field(
+        default=0,
+        description="Allowed date difference in days for reconciliation",
+    )
+    # Day 3 — Search
+    SEARCH_DEFAULT_LIMIT: int = Field(default=20, ge=1, le=100, description="Default search page limit")
+    SEARCH_MAX_LIMIT: int = Field(default=100, ge=1, le=100, description="Max search page limit")
+    SEARCH_MIN_SEMANTIC_SCORE: float = Field(default=0.6, ge=0.0, le=1.0, description="Default minimum cosine similarity score")
+    SEARCH_RRF_K: int = Field(default=60, ge=1, description="Reciprocal Rank Fusion k constant")
     OCR_LOW_CONFIDENCE_THRESHOLD: float = Field(
         default=0.75,
         ge=0.0,

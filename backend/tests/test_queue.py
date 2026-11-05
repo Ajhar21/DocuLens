@@ -12,18 +12,20 @@ from sqlalchemy.orm import Session, sessionmaker
 from app.core.security import hash_password
 from app.models.document import Document, DocumentStatus
 from app.models.job import JobStatus, ProcessingJob
-from app.models.user import User, UserRole
+from app.models.user import RoleName, User
+from app.repositories.user_repo import get_role_by_name
 from app.services import job_queue
 
 _created_queue_user_ids: list[uuid.UUID] = []
 
 
 def _seed_doc(session: Session) -> Document:
+    role_obj = get_role_by_name(session, RoleName.SYSTEM_ADMIN.value)
     user = User(
         email=f"test-queue-user-{uuid.uuid4().hex[:8]}@example.com",
         full_name="Queue Tester",
         password_hash=hash_password("TestPass123!"),
-        role=UserRole.ADMIN.value,
+        role_id=role_obj.id,
         is_active=True,
     )
     session.add(user)

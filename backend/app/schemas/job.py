@@ -29,3 +29,19 @@ class JobRead(BaseModel):
     started_at: Optional[datetime] = None
     finished_at: Optional[datetime] = None
     completed_at: Optional[datetime] = None
+
+
+class JobPagination(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    page: int
+    page_size: int
+    total: int
+    total_pages: int
+
+
+class JobPage(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    items: list[JobRead]
+    pagination: JobPagination

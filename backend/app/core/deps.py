@@ -1,19 +1,18 @@
 from __future__ import annotations
 
-from typing import Callable, Union
 import uuid
 
 from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
 import jwt
 from sqlalchemy import select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 
 from app.core.security import decode_access_token
 from app.db.session import get_db
-from app.models.user import User, UserRole
+from app.models.user import User
 
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login")
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/login")
 
 
 def get_current_user(
@@ -34,25 +33,15 @@ def get_current_user(
     except (jwt.PyJWTError, ValueError):
         raise credentials_exception
 
-    user = db.execute(select(User).where(User.id == user_id)).scalar_one_or_none()
+    user = (
+        db.execute(
+            select(User)
+            .options(joinedload(User.role_rel))
+            .where(User.id == user_id)
+        )
+        .scalars()
+        .first()
+    )
     if user is None or not user.is_active:
         raise credentials_exception
     return user
-
-
-def require_role(*allowed: Union[str, UserRole]) -> Callable[[User], User]:
-    allowed_roles = {
-        r.value if isinstance(r, UserRole) else str(r) for r in allowed
-    }
-
-    def _role_checker(current_user: User = Depends(get_current_user)) -> User:
-        if current_user.role == UserRole.ADMIN.value:
-            return current_user
-        if current_user.role not in allowed_roles:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Insufficient permissions",
-            )
-        return current_user
-
-    return _role_checker

@@ -154,4 +154,9 @@ class DocumentCorrection(Base):
 
     document: Mapped[Document] = relationship("Document", back_populates="corrections")
     invoice: Mapped[Optional[ExtractedInvoice]] = relationship("ExtractedInvoice", back_populates="corrections")
+    user: Mapped[User] = relationship("User", foreign_keys=[corrected_by], lazy="joined")
+
+    @property
+    def reason(self) -> Optional[str]:
+        return self.correction_reason
 

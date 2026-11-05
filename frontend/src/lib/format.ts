@@ -119,6 +119,8 @@ export function formatMoney(
   return `${rawAmountStr} (currency unknown)`;
 }
 
+export const formatCurrency = formatMoney;
+
 const UUID_REGEX = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi;
 
 /**

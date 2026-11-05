@@ -84,4 +84,8 @@ class ProcessingJob(Base):
     def completed_at(self) -> Optional[datetime]:
         return self.finished_at
 
+    @completed_at.setter
+    def completed_at(self, value: Optional[datetime]) -> None:
+        self.finished_at = value
+
     document: Mapped[Document] = relationship("Document", back_populates="jobs")

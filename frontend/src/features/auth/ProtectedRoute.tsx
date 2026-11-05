@@ -1,10 +1,21 @@
 import type { ReactNode } from "react";
 import { Navigate, useLocation } from "react-router-dom";
 import { Skeleton } from "@/components/ui/skeleton";
+import { ErrorState } from "@/components/shared/ErrorState";
+import { usePermissions, type Permission } from "@/lib/permissions";
 import { useAuth } from "./use-auth";
 
-export function ProtectedRoute({ children }: { children: ReactNode }) {
+interface ProtectedRouteProps {
+  children: ReactNode;
+  requiredPermission?: Permission;
+}
+
+export function ProtectedRoute({
+  children,
+  requiredPermission,
+}: ProtectedRouteProps) {
   const { status } = useAuth();
+  const { can } = usePermissions();
   const location = useLocation();
 
   if (status === "loading") {
@@ -44,6 +55,17 @@ export function ProtectedRoute({ children }: { children: ReactNode }) {
     );
   }
 
+  if (requiredPermission && !can(requiredPermission)) {
+    return (
+      <div className="mx-auto w-full max-w-4xl p-6">
+        <ErrorState
+          isForbidden
+          title="Access Restricted"
+          message={`Your assigned role does not have the '${requiredPermission}' permission required to access this resource.`}
+        />
+      </div>
+    );
+  }
+
   return <>{children}</>;
 }
-
