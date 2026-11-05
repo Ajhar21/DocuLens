@@ -5,43 +5,66 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import type { DocumentStatus } from "@/lib/api/types";
 import { cn } from "@/lib/utils";
-import { DOCUMENT_STATUS_META } from "./status";
+import {
+  getStatusPresentation,
+  type StatusCategory,
+} from "./status";
 
-interface StatusBadgeProps {
-  status: DocumentStatus;
+export interface StatusBadgeProps {
+  status: string | null | undefined;
+  category?: StatusCategory;
   error?: string | null;
+  showIcon?: boolean;
+  className?: string;
 }
 
-export function StatusBadge({ status, error }: StatusBadgeProps) {
-  const meta = DOCUMENT_STATUS_META[status];
+/**
+ * Universal StatusBadge component driven by the real backend values.
+ * - Conveys status via icon + text + color (never color alone).
+ * - Tooltip error on hover when error is provided.
+ * - Unknown values render the raw string neutrally without crashing.
+ */
+export function StatusBadge({
+  status,
+  category,
+  error,
+  showIcon = true,
+  className,
+}: StatusBadgeProps) {
+  const meta = getStatusPresentation(status, category);
   const Icon = meta.icon;
 
   const badge = (
     <Badge
       variant="outline"
-      className={cn("font-medium", meta.badgeClassName)}
-      data-testid={`status-badge-${status}`}
+      className={cn(
+        "inline-flex items-center gap-1.5 px-2.5 py-0.5 text-xs font-medium tracking-tight",
+        meta.badgeClassName,
+        className,
+      )}
+      data-testid={`status-badge-${status || "unknown"}`}
     >
-      <Icon
-        className={cn("h-3.5 w-3.5 shrink-0", meta.spin && "animate-spin")}
-        aria-hidden="true"
-      />
+      {showIcon && (
+        <Icon
+          className={cn("h-3.5 w-3.5 shrink-0", meta.spin && "animate-spin")}
+          aria-hidden="true"
+        />
+      )}
       <span>{meta.label}</span>
     </Badge>
   );
 
-  if (status === "failed" && error) {
+  if (error) {
     return (
       <TooltipProvider delayDuration={150}>
         <Tooltip>
           <TooltipTrigger asChild>
             <span className="inline-flex cursor-help">{badge}</span>
           </TooltipTrigger>
-          <TooltipContent>
-            <p className="font-medium">Parse error</p>
-            <p className="mt-0.5 text-primary-foreground/90">{error}</p>
+          <TooltipContent className="max-w-xs text-xs">
+            <p className="font-semibold text-rose-300">Failure reason</p>
+            <p className="mt-0.5 break-words text-primary-foreground/90">{error}</p>
           </TooltipContent>
         </Tooltip>
       </TooltipProvider>
@@ -50,4 +73,3 @@ export function StatusBadge({ status, error }: StatusBadgeProps) {
 
   return badge;
 }
-

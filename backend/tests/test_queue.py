@@ -1,28 +1,36 @@
 from __future__ import annotations
 
+from collections.abc import Generator
 from datetime import datetime, timedelta, timezone
 import threading
 import uuid
 
+import pytest
+from sqlalchemy import delete, select
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.core.security import hash_password
 from app.models.document import Document, DocumentStatus
 from app.models.job import JobStatus, ProcessingJob
-from app.models.user import User, UserRole
+from app.models.user import RoleName, User
+from app.repositories.user_repo import get_role_by_name
 from app.services import job_queue
+
+_created_queue_user_ids: list[uuid.UUID] = []
 
 
 def _seed_doc(session: Session) -> Document:
+    role_obj = get_role_by_name(session, RoleName.SYSTEM_ADMIN.value)
     user = User(
-        email=f"user-{uuid.uuid4().hex[:8]}@example.com",
+        email=f"test-queue-user-{uuid.uuid4().hex[:8]}@example.com",
         full_name="Queue Tester",
         password_hash=hash_password("TestPass123!"),
-        role=UserRole.ADMIN.value,
+        role_id=role_obj.id,
         is_active=True,
     )
     session.add(user)
     session.flush()
+    _created_queue_user_ids.append(user.id)
 
     doc = Document(
         original_filename="test.pdf",
@@ -38,6 +46,19 @@ def _seed_doc(session: Session) -> Document:
     session.commit()
     session.refresh(doc)
     return doc
+
+
+@pytest.fixture(autouse=True)
+def cleanup_queue_test_users(test_sessionmaker: sessionmaker[Session]) -> Generator[None, None, None]:
+    yield
+    with test_sessionmaker() as session:
+        while _created_queue_user_ids:
+            user_id = _created_queue_user_ids.pop()
+            doc_ids_subq = select(Document.id).where(Document.uploaded_by == user_id)
+            session.execute(delete(ProcessingJob).where(ProcessingJob.document_id.in_(doc_ids_subq)))
+            session.execute(delete(Document).where(Document.uploaded_by == user_id))
+            session.execute(delete(User).where(User.id == user_id))
+        session.commit()
 
 
 def test_claim_next_concurrent_single_winner(

@@ -4,6 +4,8 @@ import type {
   DocumentPage,
   ListDocumentsParams,
   UploadPolicy,
+  DocumentDetailRead,
+  JobRead,
 } from "@/lib/api/types";
 
 export async function fetchDocuments(
@@ -15,6 +17,7 @@ export async function fetchDocuments(
       limit: params.limit,
       offset: params.offset,
       status: params.status,
+      review_status: params.review_status,
     },
   });
 }
@@ -38,6 +41,21 @@ export async function uploadDocumentsBatch(options: {
     formData,
     onProgress: options.onProgress,
     signal: options.signal,
+  });
+}
+
+/** Fetch a single document detail, including processing jobs, extraction and validation */
+export async function fetchDocumentDetail(id: string): Promise<DocumentDetailRead> {
+  return apiRequest<DocumentDetailRead>(`/documents/${id}`, { method: "GET" });
+}
+
+/** Re‑run a pipeline stage for a document */
+export async function reprocessDocument(
+  id: string,
+  stage: "extraction" | "embedding",
+): Promise<JobRead> {
+  return apiRequest<JobRead>(`/documents/${id}/reprocess?stage=${stage}`, {
+    method: "POST",
   });
 }
 

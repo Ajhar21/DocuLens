@@ -80,3 +80,15 @@ Tests run in an isolated schema (`TEST_SCHEMA`, default `doculens_test`) with `s
 ```cmd
 pytest
 ```
+
+## Day 2 — AI Extraction, Financial Validation & Embeddings
+
+- **LLM Provider**: Google Gemini via `google-genai` (`LLM_MODEL=gemini-2.5-flash`, `LLM_TEMPERATURE=0`).
+- **Embedding Provider**: `gemini-embedding-001` (`EMBEDDING_DIM=768`, L2-normalized in code, stored in `document_chunks.embedding` as `vector(768)` with an HNSW `vector_cosine_ops` index). Startup fails fast if `EMBEDDING_DIM` does not match the migration dimension (`768`).
+- **OCR Confidence Threshold**: `OCR_LOW_CONFIDENCE_THRESHOLD` in `.env` controls when a `LOW_OCR_CONFIDENCE` (`INFO`) validation row is emitted; tune this value empirically on real scanned document samples.
+- **Manual Smoke Script**:
+  ```cmd
+  cd backend
+  venv\Scripts\activate
+  python -m scripts.smoke_day2 <document_id>
+  ```

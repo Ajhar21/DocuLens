@@ -1,21 +1,35 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Optional
+from typing import Any, Optional
 import uuid
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field, field_validator
 
-from app.models.user import UserRole
+from app.models.user import RoleName
+
+
+def _normalize_role_input(v: Any) -> Any:
+    if v is None or isinstance(v, RoleName):
+        return v
+    if isinstance(v, str):
+        cleaned = v.strip().upper()
+        return RoleName(cleaned)
+    return v
 
 
 class UserCreate(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", populate_by_name=True)
 
     email: str = Field(..., min_length=3, max_length=255)
-    full_name: str = Field(..., min_length=1, max_length=255)
+    full_name: str = Field(
+        ...,
+        min_length=1,
+        max_length=255,
+        validation_alias=AliasChoices("full_name", "name"),
+    )
     password: str = Field(..., min_length=6, max_length=255)
-    role: UserRole = Field(default=UserRole.VIEWER)
+    role: RoleName = Field(default=RoleName.ACCOUNTS_AUDIT)
     is_active: bool = Field(default=True)
 
     @field_validator("email")
@@ -26,13 +40,46 @@ class UserCreate(BaseModel):
             raise ValueError("Invalid email address")
         return cleaned
 
+    @field_validator("role", mode="before")
+    @classmethod
+    def normalize_role(cls, v: Any) -> Any:
+        return _normalize_role_input(v)
+
 
 class UserUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid", populate_by_name=True)
+
+    full_name: Optional[str] = Field(
+        default=None,
+        min_length=1,
+        max_length=255,
+        validation_alias=AliasChoices("full_name", "name"),
+    )
+    password: Optional[str] = Field(default=None, min_length=6, max_length=255)
+    role: Optional[RoleName] = None
+    is_active: Optional[bool] = None
+
+    @field_validator("role", mode="before")
+    @classmethod
+    def normalize_role(cls, v: Any) -> Any:
+        return _normalize_role_input(v)
+
+
+class UserRoleUpdate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    full_name: Optional[str] = Field(default=None, min_length=1, max_length=255)
-    role: Optional[UserRole] = None
-    is_active: Optional[bool] = None
+    role: RoleName
+
+    @field_validator("role", mode="before")
+    @classmethod
+    def normalize_role(cls, v: Any) -> Any:
+        return _normalize_role_input(v)
+
+
+class UserStatusUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    is_active: bool
 
 
 class UserRead(BaseModel):
@@ -41,9 +88,10 @@ class UserRead(BaseModel):
     id: uuid.UUID
     email: str
     full_name: str
-    role: UserRole
+    role: RoleName
     is_active: bool
     created_at: datetime
+    updated_at: Optional[datetime] = None
 
 
 class UserSummary(BaseModel):

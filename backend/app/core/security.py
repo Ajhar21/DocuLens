@@ -1,4 +1,6 @@
 from datetime import datetime, timezone, timedelta
+import hashlib
+import secrets
 from typing import Any, Optional, Dict
 from argon2 import PasswordHasher
 from argon2.exceptions import VerifyMismatchError, VerificationError, InvalidHashError
@@ -37,3 +39,11 @@ def create_access_token(subject: str, role: str, expires_delta: Optional[timedel
 def decode_access_token(token: str) -> Dict[str, Any]:
     return jwt.decode(token, settings.JWT_SECRET, algorithms=["HS256"])
 
+
+def hash_refresh_token(raw_token: str) -> str:
+    return hashlib.sha256(raw_token.encode("utf-8")).hexdigest()
+
+
+def generate_refresh_token() -> tuple[str, str]:
+    raw_token = secrets.token_urlsafe(32)
+    return raw_token, hash_refresh_token(raw_token)

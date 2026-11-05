@@ -1,19 +1,46 @@
-import { FileText, Files, type LucideIcon } from "lucide-react";
+import {
+  ClipboardCheck,
+  Files,
+  FileText,
+  GitCompare,
+  Search,
+  type LucideIcon,
+} from "lucide-react";
 import { NavLink } from "react-router-dom";
+import { usePermissions, type Permission } from "@/lib/permissions";
 import { cn } from "@/lib/utils";
 
 interface NavItem {
   label: string;
   to: string;
   icon: LucideIcon;
+  permission: Permission;
 }
 
-// Structured for future Day 2+ routes while rendering only routes that exist today.
 const NAV_ITEMS: readonly NavItem[] = [
   {
     label: "Documents",
     to: "/documents",
     icon: Files,
+    permission: "document:view",
+  },
+  {
+    label: "Review Queue",
+    to: "/review",
+    icon: ClipboardCheck,
+    permission: "extraction:view",
+  },
+  {
+    label: "Reconciliation",
+    to: "/reconciliation",
+    icon: GitCompare,
+    permission: "reconciliation:view",
+  },
+  {
+    label: "Search",
+    to: "/search",
+    icon: Search,
+    permission: "search:use",
   },
 ];
 
@@ -22,6 +49,10 @@ interface SidebarProps {
 }
 
 export function Sidebar({ onNavigate }: SidebarProps) {
+  const { can } = usePermissions();
+
+  const visibleNavItems = NAV_ITEMS.filter((item) => can(item.permission));
+
   return (
     <div className="flex h-full flex-col bg-sidebar text-sidebar-foreground">
       <div className="flex h-14 items-center gap-2.5 border-b px-5">
@@ -42,7 +73,7 @@ export function Sidebar({ onNavigate }: SidebarProps) {
         aria-label="Primary navigation"
         className="flex-1 space-y-1 px-3 py-4"
       >
-        {NAV_ITEMS.map((item) => {
+        {visibleNavItems.map((item) => {
           const Icon = item.icon;
           return (
             <NavLink
@@ -67,10 +98,9 @@ export function Sidebar({ onNavigate }: SidebarProps) {
 
       <div className="border-t p-4">
         <p className="text-xs text-muted-foreground">
-          Day 1 Ingestion &amp; Queue Workspace
+          DocuLens Operations Workspace
         </p>
       </div>
     </div>
   );
 }
-

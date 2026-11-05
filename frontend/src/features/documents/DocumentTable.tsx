@@ -1,8 +1,10 @@
 import { useState } from "react";
+import { useNavigate } from "react-router-dom";
 import {
   AlertCircle,
   ChevronLeft,
   ChevronRight,
+  Eye,
   FileSpreadsheet,
   FileText,
   Image as ImageIcon,
@@ -31,11 +33,14 @@ import { StatusBadge } from "./StatusBadge";
 
 const PAGE_SIZE = 20;
 
+export type ActiveFilter = DocumentStatus | "needs_review" | "all";
+
 const STATUS_FILTERS: readonly {
   label: string;
-  value: DocumentStatus | "all";
+  value: ActiveFilter;
 }[] = [
   { label: "All", value: "all" },
+  { label: "Needs Review", value: "needs_review" },
   { label: "Uploaded", value: "uploaded" },
   { label: "Processing", value: "processing" },
   { label: "Parsed", value: "parsed" },
@@ -68,17 +73,21 @@ export function DocumentTable({
   canUpload,
   onFocusUpload,
 }: DocumentTableProps) {
+  const navigate = useNavigate();
   const [pageIndex, setPageIndex] = useState(0);
-  const [statusFilter, setStatusFilter] = useState<DocumentStatus | "all">(
-    "all",
-  );
+  const [activeFilter, setActiveFilter] = useState<ActiveFilter>("all");
 
   const offset = pageIndex * PAGE_SIZE;
   const { data, isLoading, isError, error, refetch, isFetching } =
     useDocumentsQuery({
       limit: PAGE_SIZE,
       offset,
-      status: statusFilter === "all" ? undefined : statusFilter,
+      status:
+        activeFilter !== "all" && activeFilter !== "needs_review"
+          ? (activeFilter as DocumentStatus)
+          : undefined,
+      review_status:
+        activeFilter === "needs_review" ? "needs_review" : undefined,
     });
 
   const items = data?.items ?? [];
@@ -86,8 +95,8 @@ export function DocumentTable({
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
   const isPolling = items.some((doc) => isNonFinalStatus(doc.status));
 
-  const handleFilterChange = (next: DocumentStatus | "all") => {
-    setStatusFilter(next);
+  const handleFilterChange = (next: ActiveFilter) => {
+    setActiveFilter(next);
     setPageIndex(0);
   };
 
@@ -121,7 +130,7 @@ export function DocumentTable({
             className="flex flex-wrap items-center gap-1 rounded-lg border bg-muted/40 p-1"
           >
             {STATUS_FILTERS.map((filter) => {
-              const active = statusFilter === filter.value;
+              const active = activeFilter === filter.value;
               return (
                 <button
                   key={filter.value}
@@ -214,19 +223,21 @@ export function DocumentTable({
               <Inbox className="h-5 w-5" />
             </div>
             <h3 className="text-sm font-semibold text-foreground">
-              {statusFilter === "all"
+              {activeFilter === "all"
                 ? "No documents uploaded yet"
-                : `No ${statusFilter} documents`}
+                : activeFilter === "needs_review"
+                  ? "No documents requiring review"
+                  : `No ${activeFilter} documents`}
             </h3>
             <p className="mt-1 max-w-sm text-xs text-muted-foreground">
-              {statusFilter !== "all"
+              {activeFilter !== "all"
                 ? "No documents match the selected status filter."
                 : canUpload
                   ? "Upload a PDF, image, or spreadsheet above to start background extraction."
                   : "Documents uploaded by reviewers and administrators will appear here automatically."}
             </p>
             <div className="mt-4">
-              {statusFilter !== "all" ? (
+              {activeFilter !== "all" ? (
                 <Button
                   type="button"
                   variant="outline"
@@ -262,6 +273,7 @@ export function DocumentTable({
                   <TableHead className="hidden sm:table-cell">Type</TableHead>
                   <TableHead className="hidden md:table-cell">Size</TableHead>
                   <TableHead>Status</TableHead>
+                  <TableHead>Review</TableHead>
                   <TableHead className="hidden lg:table-cell">
                     Uploaded by
                   </TableHead>
@@ -270,7 +282,20 @@ export function DocumentTable({
               </TableHeader>
               <TableBody>
                 {items.map((doc) => (
-                  <TableRow key={doc.id} data-testid="document-row">
+                  <TableRow
+                    key={doc.id}
+                    data-testid="document-row"
+                    tabIndex={0}
+                    role="link"
+                    className="cursor-pointer hover:bg-muted/20 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                    onClick={() => navigate(`/documents/${doc.id}`)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" || e.key === " ") {
+                        e.preventDefault();
+                        navigate(`/documents/${doc.id}`);
+                      }
+                    }}
+                  >
                     <TableCell className="max-w-[200px] sm:max-w-[280px]">
                       <div className="flex items-start gap-2.5">
                         <div className="mt-0.5">
@@ -291,6 +316,11 @@ export function DocumentTable({
                             <p className="mt-0.5 line-clamp-1 text-xs text-status-failed">
                               {doc.error}
                             </p>
+                          )}
+                          {doc.review_status === "needs_review" && (
+                            <div className="mt-1 sm:hidden">
+                              <StatusBadge status={doc.review_status} category="review" />
+                            </div>
                           )}
                         </div>
                       </div>
@@ -313,14 +343,36 @@ export function DocumentTable({
                       <StatusBadge status={doc.status} error={doc.error} />
                     </TableCell>
 
+                    <TableCell>
+                      <StatusBadge
+                        status={doc.review_status || "pending"}
+                        category="review"
+                      />
+                    </TableCell>
+
                     <TableCell className="hidden text-muted-foreground lg:table-cell">
                       {doc.uploader?.full_name ?? "—"}
                     </TableCell>
 
                     <TableCell className="whitespace-nowrap text-right text-xs tabular-nums text-muted-foreground">
-                      <time dateTime={doc.created_at}>
-                        {formatDateTime(doc.created_at)}
-                      </time>
+                      <div className="flex items-center justify-end gap-2">
+                        <time dateTime={doc.created_at}>
+                          {formatDateTime(doc.created_at)}
+                        </time>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-7 px-2 text-xs font-medium text-primary hover:bg-primary/10"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            navigate(`/documents/${doc.id}`);
+                          }}
+                          aria-label={`View details for ${doc.original_filename}`}
+                        >
+                          <Eye className="mr-1 h-3.5 w-3.5" />
+                          View
+                        </Button>
+                      </div>
                     </TableCell>
                   </TableRow>
                 ))}
