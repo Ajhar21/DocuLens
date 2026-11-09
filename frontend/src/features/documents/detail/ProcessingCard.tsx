@@ -2,14 +2,10 @@ import { useState } from "react";
 import {
   Activity,
   AlertTriangle,
-  CheckCircle2,
-  Clock,
   Database,
   Loader2,
   RefreshCw,
-  Search,
   Sparkles,
-  XCircle,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -161,37 +157,6 @@ export function ProcessingCard({
       </CardHeader>
 
       <CardContent className="space-y-4">
-        {/* Search Indexing Indicator */}
-        <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border bg-muted/20 px-3.5 py-2.5">
-          <div className="flex items-center gap-2.5">
-            <Search className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
-            <span className="text-xs font-medium text-foreground">Semantic Search Index</span>
-          </div>
-          <div>
-            {!embeddingJob ? (
-              <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
-                <Clock className="h-3.5 w-3.5" />
-                Not indexed
-              </span>
-            ) : embeddingJob.status === "succeeded" ? (
-              <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-500/30 bg-emerald-50 px-2.5 py-0.5 text-xs font-medium text-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300">
-                <CheckCircle2 className="h-3.5 w-3.5" />
-                Indexed for search
-              </span>
-            ) : embeddingJob.status === "running" || embeddingJob.status === "pending" ? (
-              <span className="inline-flex items-center gap-1.5 rounded-full border border-sky-500/30 bg-sky-50 px-2.5 py-0.5 text-xs font-medium text-sky-800 dark:bg-sky-950/40 dark:text-sky-300">
-                <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                Indexing in progress
-              </span>
-            ) : (
-              <span className="inline-flex items-center gap-1.5 rounded-full border border-rose-500/30 bg-rose-50 px-2.5 py-0.5 text-xs font-medium text-rose-800 dark:bg-rose-950/40 dark:text-rose-300">
-                <XCircle className="h-3.5 w-3.5" />
-                Indexing failed
-              </span>
-            )}
-          </div>
-        </div>
-
         {/* Jobs Table */}
         <div className="rounded-md border">
           <Table>

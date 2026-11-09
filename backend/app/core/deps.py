@@ -8,6 +8,7 @@ import jwt
 from sqlalchemy import select
 from sqlalchemy.orm import Session, joinedload
 
+from app.core.errors import AppError
 from app.core.security import decode_access_token
 from app.db.session import get_db
 from app.models.user import User
@@ -15,7 +16,7 @@ from app.models.user import User
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/login")
 
 
-def get_current_user(
+def get_current_user_allow_password_change(
     token: str = Depends(oauth2_scheme),
     db: Session = Depends(get_db),
 ) -> User:
@@ -30,7 +31,8 @@ def get_current_user(
         if not sub:
             raise credentials_exception
         user_id = uuid.UUID(str(sub))
-    except (jwt.PyJWTError, ValueError):
+        token_tv = int(payload.get("tv", 0))
+    except (jwt.PyJWTError, ValueError, TypeError):
         raise credentials_exception
 
     user = (
@@ -44,4 +46,19 @@ def get_current_user(
     )
     if user is None or not user.is_active:
         raise credentials_exception
+    if int(user.token_version or 0) != token_tv:
+        raise credentials_exception
+    return user
+
+
+def get_current_user(
+    user: User = Depends(get_current_user_allow_password_change),
+) -> User:
+    if user.must_change_password:
+        raise AppError(
+            status.HTTP_403_FORBIDDEN,
+            "PASSWORD_CHANGE_REQUIRED",
+            "Password change required before accessing this resource",
+            data={"code": "PASSWORD_CHANGE_REQUIRED"},
+        )
     return user

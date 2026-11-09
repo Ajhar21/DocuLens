@@ -183,7 +183,7 @@ def test_parse_complete_enqueues_both_extraction_and_embedding_once_and_runs_hap
     assert detail_resp.status_code == 200
     detail = detail_resp.json()["data"]
     assert detail["status"] == DocumentStatus.PARSED.value
-    assert detail["review_status"] == ReviewStatus.PENDING.value
+    assert detail["review_status"] == ReviewStatus.NOT_REQUIRED.value
     assert detail["extracted_invoice"]["invoice_number"] == "INV-2026-001"
     assert len(detail["extracted_invoice"]["line_items"]) == 2
     assert len(detail["validation_results"]) >= 10

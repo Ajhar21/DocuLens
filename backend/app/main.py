@@ -71,9 +71,31 @@ app.add_middleware(
 )
 
 # Canonical PRD v1.1 API v1 mounts
-for _router in (health.router, auth.router, users.router, documents.router, jobs.router, reviews.router, audit.router, reconciliation.router, search.router):
+for _router in (
+    health.router,
+    auth.router,
+    users.router,
+    users.admin_router,
+    documents.router,
+    jobs.router,
+    reviews.router,
+    audit.router,
+    reconciliation.router,
+    search.router,
+):
     app.include_router(_router, prefix="/api/v1")
 
 # Backward-compatible /api aliases
-for _router in (health.router, auth.router, users.router, documents.router, jobs.router, reviews.router, audit.router, reconciliation.router, search.router):
+for _router in (
+    health.router,
+    auth.router,
+    users.router,
+    users.admin_router,
+    documents.router,
+    jobs.router,
+    reviews.router,
+    audit.router,
+    reconciliation.router,
+    search.router,
+):
     app.include_router(_router, prefix="/api", include_in_schema=False)

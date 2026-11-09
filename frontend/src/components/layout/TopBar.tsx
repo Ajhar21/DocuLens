@@ -1,4 +1,5 @@
-import { LogOut, Menu } from "lucide-react";
+import { KeyRound, LogOut, Menu } from "lucide-react";
+import { useNavigate } from "react-router-dom";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -20,6 +21,7 @@ interface TopBarProps {
 
 export function TopBar({ onOpenMobileMenu }: TopBarProps) {
   const { user, logout } = useAuth();
+  const navigate = useNavigate();
 
   if (!user) return null;
 
@@ -87,6 +89,11 @@ export function TopBar({ onOpenMobileMenu }: TopBarProps) {
             </DropdownMenuLabel>
 
             <DropdownMenuSeparator />
+
+            <DropdownMenuItem onClick={() => navigate("/change-password")}>
+              <KeyRound className="h-4 w-4" />
+              <span>Change password</span>
+            </DropdownMenuItem>
 
             <DropdownMenuItem
               onClick={() => logout("manual")}

@@ -21,7 +21,12 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
         return False
 
 
-def create_access_token(subject: str, role: str, expires_delta: Optional[timedelta] = None) -> str:
+def create_access_token(
+    subject: str,
+    role: str,
+    expires_delta: Optional[timedelta] = None,
+    token_version: int = 0,
+) -> str:
     now = datetime.now(timezone.utc)
     if expires_delta:
         expire = now + expires_delta
@@ -30,6 +35,7 @@ def create_access_token(subject: str, role: str, expires_delta: Optional[timedel
     to_encode: Dict[str, Any] = {
         "sub": str(subject),
         "role": str(role),
+        "tv": int(token_version),
         "exp": expire,
         "iat": now,
     }
@@ -47,3 +53,12 @@ def hash_refresh_token(raw_token: str) -> str:
 def generate_refresh_token() -> tuple[str, str]:
     raw_token = secrets.token_urlsafe(32)
     return raw_token, hash_refresh_token(raw_token)
+
+
+def hash_action_token(raw_token: str) -> str:
+    return hashlib.sha256(raw_token.encode("utf-8")).hexdigest()
+
+
+def generate_action_token() -> tuple[str, str]:
+    raw_token = secrets.token_urlsafe(32)
+    return raw_token, hash_action_token(raw_token)

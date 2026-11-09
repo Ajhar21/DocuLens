@@ -20,6 +20,7 @@ from app.schemas.search import (
     SearchResponse,
 )
 from app.search.rrf import HybridFusionHit, RankedItem, compute_rrf
+from app.validation.service import sync_legacy_pending_review_statuses
 
 
 class SearchService:
@@ -28,7 +29,7 @@ class SearchService:
         db: Session,
         user: User,
         *,
-        query: str,
+        query: Optional[str] = None,
         mode: str = "hybrid",
         supplier_name: Optional[str] = None,
         date_from: Optional[date] = None,
@@ -39,20 +40,9 @@ class SearchService:
         limit: int = 20,
         offset: int = 0,
     ) -> SearchResponse:
+        sync_legacy_pending_review_statuses(db)
+
         cleaned_query = (query or "").strip()
-        if not cleaned_query:
-            raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail="Search query 'q' cannot be empty",
-            )
-
-        norm_mode = (mode or "hybrid").strip().lower()
-        if norm_mode not in ("keyword", "semantic", "hybrid"):
-            raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail=f"Invalid search mode '{mode}'. Must be one of: keyword, semantic, hybrid",
-            )
-
         filters = SearchCandidateFilter(
             supplier_name=supplier_name,
             date_from=date_from,
@@ -62,13 +52,32 @@ class SearchService:
             review_status=review_status,
         )
 
+        if not cleaned_query and not filters.has_any_filter():
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="Provide a search query 'q' or at least one metadata filter",
+            )
+
+        norm_mode = (mode or "hybrid").strip().lower()
+        if norm_mode not in ("keyword", "semantic", "hybrid"):
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=f"Invalid search mode '{mode}'. Must be one of: keyword, semantic, hybrid",
+            )
+
         effective_limit = min(max(1, limit), settings.SEARCH_MAX_LIMIT)
         effective_offset = max(0, offset)
 
         target_items: list[tuple[uuid.UUID, float, str, Optional[str]]] = []
         # Each item is (doc_id, score, match_type, snippet)
 
-        if norm_mode == "keyword":
+        if not cleaned_query:
+            flt_items = search_repo.filter_only_search(
+                db, user, filters, limit=settings.SEARCH_MAX_LIMIT
+            )
+            for it in flt_items:
+                target_items.append((it.item_id, it.score, "FILTER", it.snippet))
+        elif norm_mode == "keyword":
             kw_items = search_repo.keyword_search(
                 db, user, cleaned_query, filters, limit=settings.SEARCH_MAX_LIMIT
             )
@@ -150,7 +159,7 @@ class SearchService:
 
         return SearchResponse(
             query=cleaned_query,
-            mode=norm_mode.upper(),
+            mode="FILTER" if not cleaned_query else norm_mode.upper(),
             total_hits=total_hits,
             hits=hits,
         )

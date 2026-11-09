@@ -1,5 +1,11 @@
 import { apiRequest } from "@/lib/api/client";
-import type { TokenResponse, User } from "@/lib/api/types";
+import type {
+  AcceptInviteRequest,
+  ChangePasswordRequest,
+  ResetPasswordRequest,
+  TokenResponse,
+  User,
+} from "@/lib/api/types";
 
 export async function loginRequest(
   email: string,
@@ -19,6 +25,35 @@ export async function loginRequest(
 export async function fetchCurrentUser(): Promise<User> {
   return apiRequest<User>("/auth/me", {
     method: "GET",
+  });
+}
+
+export async function changePasswordRequest(
+  payload: ChangePasswordRequest,
+): Promise<User> {
+  return apiRequest<User>("/auth/change-password", {
+    method: "POST",
+    json: payload,
+  });
+}
+
+export async function acceptInviteRequest(
+  payload: AcceptInviteRequest,
+): Promise<TokenResponse & { user: User }> {
+  return apiRequest<TokenResponse & { user: User }>("/auth/accept-invite", {
+    method: "POST",
+    json: payload,
+    auth: false,
+  });
+}
+
+export async function resetPasswordWithTokenRequest(
+  payload: ResetPasswordRequest,
+): Promise<User> {
+  return apiRequest<User>("/auth/reset-password", {
+    method: "POST",
+    json: payload,
+    auth: false,
   });
 }
 

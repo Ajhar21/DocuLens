@@ -1,18 +1,31 @@
 import type { UserRole } from "@/lib/api/types";
 
 /**
- * Mirrors backend `require_role(UserRole.REVIEWER)` where `UserRole.ADMIN`
- * always bypasses role checks in `app/core/deps.py`.
+ * UI helper for document upload visibility (`document:upload` permission).
+ * UI hints only; backend `require_permission(Permission.DOCUMENT_UPLOAD)` is the authority.
  */
 export function canUploadDocuments(role: UserRole): boolean {
-  return role === "reviewer" || role === "admin";
+  return (
+    role === "FINANCE_EXECUTIVE" ||
+    role === "FINANCE_MANAGER" ||
+    role === "SYSTEM_ADMIN" ||
+    role === "reviewer" ||
+    role === "admin"
+  );
 }
 
 /**
- * Reprocessing documents (extraction / embedding stages) requires Reviewer or Admin.
+ * UI helper for document reprocessing visibility (`document:upload` permission).
+ * UI hints only; backend `require_permission(Permission.DOCUMENT_UPLOAD)` is the authority.
  */
 export function canReprocessDocuments(role: UserRole): boolean {
-  return role === "reviewer" || role === "admin";
+  return (
+    role === "FINANCE_EXECUTIVE" ||
+    role === "FINANCE_MANAGER" ||
+    role === "SYSTEM_ADMIN" ||
+    role === "reviewer" ||
+    role === "admin"
+  );
 }
 
 export const ROLE_LABELS: Record<UserRole, string> = {

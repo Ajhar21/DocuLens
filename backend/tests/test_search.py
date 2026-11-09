@@ -365,6 +365,20 @@ def test_search_structured_filters(client: TestClient, db_session: Session) -> N
     assert str(doc1.id) in doc_ids
     assert str(doc2.id) not in doc_ids
 
+    # Filter-only search without free-text query 'q'
+    resp_filter_only = client.get(
+        f"/api/v1/search?supplier_name={target_supplier}&review_status=approved",
+        headers=headers,
+    )
+    assert resp_filter_only.status_code == 200, resp_filter_only.text
+    filter_data = resp_filter_only.json()["data"]
+    assert filter_data["mode"] == "FILTER"
+    filter_hits = filter_data["hits"]
+    filter_doc_ids = [h["document"]["id"] for h in filter_hits]
+    assert str(doc1.id) in filter_doc_ids
+    assert str(doc2.id) not in filter_doc_ids
+    assert all(h["match_type"] == "FILTER" for h in filter_hits)
+
 
 def test_search_single_visibility_rule_enforced(
     client: TestClient,

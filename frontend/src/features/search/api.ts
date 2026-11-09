@@ -4,7 +4,7 @@ import type { SearchResponse } from "@/lib/api/types";
 export type SearchMode = "keyword" | "semantic" | "hybrid";
 
 export interface SearchParams {
-  q: string;
+  q?: string;
   mode?: SearchMode;
   supplier_name?: string;
   date_from?: string;
@@ -19,10 +19,11 @@ export interface SearchParams {
 export async function searchDocuments(
   params: SearchParams,
 ): Promise<SearchResponse> {
+  const cleanedQ = params.q?.trim();
   return apiRequest<SearchResponse>("/search", {
     method: "GET",
     query: {
-      q: params.q,
+      q: cleanedQ || undefined,
       mode: params.mode || "hybrid",
       supplier_name: params.supplier_name || undefined,
       date_from: params.date_from || undefined,

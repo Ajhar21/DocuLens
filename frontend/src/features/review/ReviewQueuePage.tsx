@@ -85,6 +85,7 @@ export function ReviewQueuePage() {
             <option value="pending">Pending</option>
             <option value="in_review">In Review</option>
             <option value="corrected">Corrected</option>
+            <option value="not_required">Review Not Required</option>
             <option value="approved">Approved</option>
             <option value="rejected">Rejected</option>
           </select>

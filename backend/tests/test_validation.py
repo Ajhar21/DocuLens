@@ -52,7 +52,8 @@ def test_validation_happy_path_all_pass() -> None:
     )
 
     assert all(r.status == "PASSED" for r in res), [r for r in res if r.status != "PASSED"]
-    assert determine_review_status(res) == ReviewStatus.PENDING.value
+    assert determine_review_status(res) == ReviewStatus.NOT_REQUIRED.value
+    assert determine_review_status([]) == ReviewStatus.PENDING.value
 
 
 def test_missing_required_fields_and_ambiguous_date() -> None:

@@ -31,6 +31,16 @@ class Settings(BaseSettings):
     ADMIN_EMAIL: str = Field(..., description="Initial admin email")
     ADMIN_PASSWORD: str = Field(..., description="Initial admin password")
     ADMIN_NAME: str = Field(default="Admin", description="Initial admin name")
+    INVITE_TTL_HOURS: int = Field(
+        default=72,
+        ge=1,
+        le=720,
+        description="Invite and password reset token TTL in hours",
+    )
+    FRONTEND_BASE_URL: str = Field(
+        default="http://localhost:5173",
+        description="Base URL for constructing invite and password reset links",
+    )
 
     # Day 2 — AI Extraction, Validation & Embeddings
     GEMINI_API_KEY: str = Field(default="", description="Google Gemini API key")
