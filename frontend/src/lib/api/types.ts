@@ -11,12 +11,20 @@ export type RoleName = Schemas["RoleName"];
 /** Legacy alias union for backwards compatibility while canonicalizing on RoleName */
 export type UserRole = RoleName | "admin" | "reviewer" | "viewer";
 
+export type UserRead = Schemas["UserRead"];
+
 export interface User {
   id: string;
   email: string;
   full_name: string;
   role: RoleName;
   is_active: boolean;
+  status?: string;
+  must_change_password?: boolean;
+  token_version?: number;
+  last_login_at?: string | null;
+  invited_by?: string | null;
+  deactivated_at?: string | null;
   created_at: string;
   updated_at?: string | null;
 }
@@ -163,3 +171,16 @@ export type SearchResponse = Schemas["SearchResponse"];
 export type SearchHit = Schemas["SearchHit"];
 export type SearchDocumentSummary = Schemas["SearchDocumentSummary"];
 export type SearchInvoiceSummary = Schemas["SearchInvoiceSummary"];
+
+// ---------------------------------------------------------------------------
+// Day 4 Schemas: User Lifecycle, Invites, Password Change & Audit Logs
+// ---------------------------------------------------------------------------
+
+export type UserInviteRequest = Schemas["UserInviteRequest"];
+export type UserInviteResponse = Schemas["UserInviteResponse"];
+export type PasswordResetLinkResponse = Schemas["PasswordResetLinkResponse"];
+export type ChangePasswordRequest = Schemas["ChangePasswordRequest"];
+export type AcceptInviteRequest = Schemas["AcceptInviteRequest"];
+export type ResetPasswordRequest = Schemas["ResetPasswordRequest"];
+export type AuditLogPage = Schemas["AuditLogPage"];
+export type AuditLogRead = AuditLogPage["items"][number];

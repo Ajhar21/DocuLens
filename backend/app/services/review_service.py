@@ -43,7 +43,10 @@ from app.schemas.review import (
     ReviewQueuePage,
 )
 from app.services.audit_service import AuditService
-from app.validation.service import run_invoice_validation
+from app.validation.service import (
+    run_invoice_validation,
+    sync_legacy_pending_review_statuses,
+)
 
 ALLOWED_EDITABLE_FIELDS: frozenset[str] = frozenset(
     {
@@ -59,11 +62,11 @@ ALLOWED_EDITABLE_FIELDS: frozenset[str] = frozenset(
 )
 
 _VALID_APPROVE_STATES: frozenset[str] = frozenset(
-    {"pending", "needs_review", "in_review", "corrected"}
+    {"pending", "needs_review", "in_review", "corrected", "not_required"}
 )
 
 _VALID_REJECT_STATES: frozenset[str] = frozenset(
-    {"pending", "needs_review", "in_review", "corrected", "approved"}
+    {"pending", "needs_review", "in_review", "corrected", "approved", "not_required"}
 )
 
 _REVIEW_STATUS_MAP: dict[str, str] = {
@@ -103,6 +106,7 @@ def list_reviews(
     review_status_filter: Optional[str] = None,
 ) -> ReviewQueuePage:
     norm_filter = normalize_review_filter(review_status_filter)
+    sync_legacy_pending_review_statuses(db)
     items_raw, total = review_repo.list_review_queue(
         db,
         current_user,

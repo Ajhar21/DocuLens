@@ -17,8 +17,22 @@ from app.repositories import user_repo
 logger = logging.getLogger(__name__)
 
 
-def seed_admin(db: Session, reset_password: bool = False) -> str:
-    """Idempotently seed the 4 canonical roles and the .env SYSTEM_ADMIN user."""
+def seed_admin(
+    db: Session,
+    reset_password: bool = False,
+    *,
+    must_change_password: bool = True,
+) -> str:
+    """Idempotently seed the 4 canonical roles and the .env SYSTEM_ADMIN user.
+
+    By default (startup bootstrap, ``reset_password=False``):
+    - Seeds ``ADMIN_EMAIL`` / ``ADMIN_PASSWORD`` ONLY if NO ``SYSTEM_ADMIN``
+      user exists anywhere in the database.
+    - If any ``SYSTEM_ADMIN`` already exists, does nothing (never resets password,
+      role, or status on boot).
+    - Sets ``must_change_password=True`` on newly bootstrapped admins and logs a
+      startup message without exposing the password.
+    """
     email = (settings.ADMIN_EMAIL or "").strip().lower()
     password = (settings.ADMIN_PASSWORD or "").strip()
     name = (getattr(settings, "ADMIN_NAME", None) or "Admin").strip()
@@ -33,6 +47,16 @@ def seed_admin(db: Session, reset_password: bool = False) -> str:
     roles_map = user_repo.ensure_roles_seeded(db)
     admin_role = roles_map[RoleName.SYSTEM_ADMIN.value]
 
+    if not reset_password:
+        existing_admin_count = user_repo.count_system_admins(db)
+        if existing_admin_count > 0:
+            db.commit()
+            logger.info(
+                "already existed: %d SYSTEM_ADMIN user(s) present in database; skipping bootstrap",
+                existing_admin_count,
+            )
+            return "already existed"
+
     user = user_repo.get_user_by_email(db, email)
 
     if user is None:
@@ -42,37 +66,41 @@ def seed_admin(db: Session, reset_password: bool = False) -> str:
             password_hash=hash_password(password),
             role_id=admin_role.id,
             is_active=True,
+            must_change_password=must_change_password,
+            token_version=0,
         )
         db.add(new_admin)
         db.commit()
-        logger.info("created: admin user %s created successfully with role SYSTEM_ADMIN", email)
+        logger.info(
+            "created: bootstrap SYSTEM_ADMIN user %s created (must_change_password=%s)",
+            email,
+            must_change_password,
+        )
         return "created"
 
     if reset_password:
         user.password_hash = hash_password(password)
         user.role_id = admin_role.id
         user.is_active = True
+        user.must_change_password = must_change_password
+        user.token_version = int(user.token_version or 0) + 1
         if name:
             user.full_name = name
         user.updated_at = datetime.now(timezone.utc)
         db.commit()
-        logger.info("password reset: admin user %s password reset successfully", email)
+        logger.info(
+            "password reset: admin user %s password reset (must_change_password=%s)",
+            email,
+            must_change_password,
+        )
         return "password reset"
 
-    needs_update = False
-    if user.role_id != admin_role.id:
-        user.role_id = admin_role.id
-        needs_update = True
-    if not user.is_active:
-        user.is_active = True
-        needs_update = True
-
-    if needs_update:
-        user.updated_at = datetime.now(timezone.utc)
-        db.commit()
-        logger.info("updated: admin user %s updated to active SYSTEM_ADMIN", email)
-        return "updated"
-
+    # Fallback when email exists with a non-admin role and 0 SYSTEM_ADMINs exist:
+    # do not overwrite their password on boot; only promote if explicitly requested via CLI.
+    logger.warning(
+        "skipped: user %s exists with non-admin role and reset_password=False; run python -m app.create_admin for manual recovery",
+        email,
+    )
     return "already existed"
 
 

@@ -6,14 +6,17 @@ from fastapi import APIRouter, Body, Depends, Request
 from fastapi.exceptions import RequestValidationError
 from sqlalchemy.orm import Session
 
-from app.core.deps import get_current_user
+from app.core.deps import get_current_user_allow_password_change
 from app.core.responses import APIResponse, ok
 from app.db.session import get_db
 from app.models.user import User
 from app.schemas.auth import (
+    AcceptInviteRequest,
+    ChangePasswordRequest,
     LoginRequest,
     LogoutRequest,
     RefreshTokenRequest,
+    ResetPasswordRequest,
     TokenResponse,
 )
 from app.schemas.user import UserRead
@@ -87,7 +90,7 @@ def refresh_token(
 @router.post("/logout", response_model=APIResponse[dict[str, bool]])
 def logout(
     payload: Optional[LogoutRequest] = Body(default=None),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user_allow_password_change),
     db: Session = Depends(get_db),
 ) -> APIResponse[dict[str, bool]]:
     """Revoke active refresh tokens for the current user (or specific token family)."""
@@ -98,6 +101,37 @@ def logout(
 
 @router.get("/me", response_model=APIResponse[UserRead])
 def read_current_user(
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user_allow_password_change),
 ) -> APIResponse[UserRead]:
     return ok(UserRead.model_validate(current_user))
+
+
+@router.post("/change-password", response_model=APIResponse[UserRead])
+def change_password(
+    payload: ChangePasswordRequest,
+    current_user: User = Depends(get_current_user_allow_password_change),
+    db: Session = Depends(get_db),
+) -> APIResponse[UserRead]:
+    """Change current user's password, clear must_change_password, and bump token_version."""
+    updated = user_service.change_password(db, current_user, payload)
+    return ok(updated, "Password changed successfully")
+
+
+@router.post("/accept-invite", response_model=APIResponse[TokenResponse])
+def accept_invite(
+    payload: AcceptInviteRequest,
+    db: Session = Depends(get_db),
+) -> APIResponse[TokenResponse]:
+    """Accept a single-use user invite token, set password, activate user, and issue tokens."""
+    token_pair = user_service.accept_invite(db, payload)
+    return ok(token_pair, "Invitation accepted")
+
+
+@router.post("/reset-password", response_model=APIResponse[UserRead])
+def reset_password(
+    payload: ResetPasswordRequest,
+    db: Session = Depends(get_db),
+) -> APIResponse[UserRead]:
+    """Complete an admin-issued single-use password reset token."""
+    updated = user_service.complete_password_reset(db, payload)
+    return ok(updated, "Password reset successfully")

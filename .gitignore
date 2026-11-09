@@ -23,6 +23,10 @@ backend/storage/
 node_modules/
 dist/
 .next/
+playwright-report/
+test-results/
+blob-report/
+playwright/.cache/
 
 # IDE / OS
 .vscode/

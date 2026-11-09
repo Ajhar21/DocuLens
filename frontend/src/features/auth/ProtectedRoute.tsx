@@ -14,7 +14,7 @@ export function ProtectedRoute({
   children,
   requiredPermission,
 }: ProtectedRouteProps) {
-  const { status } = useAuth();
+  const { status, user } = useAuth();
   const { can } = usePermissions();
   const location = useLocation();
 
@@ -53,6 +53,13 @@ export function ProtectedRoute({
         state={{ from: location.pathname + location.search }}
       />
     );
+  }
+
+  if (
+    user?.must_change_password &&
+    location.pathname !== "/change-password"
+  ) {
+    return <Navigate to="/change-password" replace />;
   }
 
   if (requiredPermission && !can(requiredPermission)) {

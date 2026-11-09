@@ -13,6 +13,7 @@ import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { fetchDocumentDetail } from "@/features/documents/api";
 import { isDocumentTerminal } from "@/features/documents/status";
+import { DocumentPreview } from "@/features/review/DocumentPreview";
 import { usePolling } from "@/hooks/usePolling";
 import { ApiError } from "@/lib/api/errors";
 import { ExtractedInvoiceCard } from "./ExtractedInvoiceCard";
@@ -165,15 +166,27 @@ export function DocumentDetailPage() {
         />
       </CardBoundary>
 
-      {/* 3. Extracted Invoice Card */}
-      <CardBoundary name="Extracted Invoice">
-        <ExtractedInvoiceCard document={document} />
-      </CardBoundary>
+      {/* 3 & 4. Two-Pane Layout: Left = Document Preview, Right = Extracted Invoice & Validation Rules */}
+      <div className="grid grid-cols-1 items-start gap-6 lg:grid-cols-12">
+        <div className="h-[720px] lg:sticky lg:top-20 lg:col-span-6">
+          <CardBoundary name="Document Preview">
+            <DocumentPreview
+              documentId={document.id}
+              filename={document.original_filename}
+            />
+          </CardBoundary>
+        </div>
 
-      {/* 4. Validation Rules Card */}
-      <CardBoundary name="Validation Rules">
-        <ValidationCard document={document} />
-      </CardBoundary>
+        <div className="space-y-6 lg:col-span-6">
+          <CardBoundary name="Extracted Invoice">
+            <ExtractedInvoiceCard document={document} />
+          </CardBoundary>
+
+          <CardBoundary name="Validation Rules">
+            <ValidationCard document={document} />
+          </CardBoundary>
+        </div>
+      </div>
     </div>
   );
 }
@@ -226,31 +239,45 @@ function DetailLoadingSkeleton() {
         </CardContent>
       </Card>
 
-      {/* Extracted Invoice Skeleton */}
-      <Card className="border shadow-sm">
-        <CardHeader>
-          <Skeleton className="h-5 w-48" />
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
-            <Skeleton className="h-12 w-full" />
-            <Skeleton className="h-12 w-full" />
-            <Skeleton className="h-12 w-full" />
-            <Skeleton className="h-12 w-full" />
-          </div>
-          <Skeleton className="h-32 w-full" />
-        </CardContent>
-      </Card>
+      {/* Split Pane Skeleton: Left = Preview, Right = Extracted Invoice + Validation */}
+      <div className="grid grid-cols-1 items-start gap-6 lg:grid-cols-12">
+        <Card className="border shadow-sm lg:col-span-6">
+          <CardHeader className="border-b px-4 py-3">
+            <Skeleton className="h-5 w-48" />
+          </CardHeader>
+          <CardContent className="p-4">
+            <Skeleton className="h-[500px] w-full" />
+          </CardContent>
+        </Card>
 
-      {/* Validation Skeleton */}
-      <Card className="border shadow-sm">
-        <CardHeader>
-          <Skeleton className="h-5 w-40" />
-        </CardHeader>
-        <CardContent>
-          <Skeleton className="h-24 w-full" />
-        </CardContent>
-      </Card>
+        <div className="space-y-6 lg:col-span-6">
+          {/* Extracted Invoice Skeleton */}
+          <Card className="border shadow-sm">
+            <CardHeader>
+              <Skeleton className="h-5 w-48" />
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+                <Skeleton className="h-12 w-full" />
+                <Skeleton className="h-12 w-full" />
+                <Skeleton className="h-12 w-full" />
+                <Skeleton className="h-12 w-full" />
+              </div>
+              <Skeleton className="h-32 w-full" />
+            </CardContent>
+          </Card>
+
+          {/* Validation Skeleton */}
+          <Card className="border shadow-sm">
+            <CardHeader>
+              <Skeleton className="h-5 w-40" />
+            </CardHeader>
+            <CardContent>
+              <Skeleton className="h-24 w-full" />
+            </CardContent>
+          </Card>
+        </div>
+      </div>
     </div>
   );
 }

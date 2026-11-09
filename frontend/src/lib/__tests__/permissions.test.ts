@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { canReprocessDocuments, canUploadDocuments } from "@/features/auth/roles";
 import { PERMISSIONS, ROLE_PERMISSIONS } from "../permissions";
 import type { RoleName } from "../api/types";
 
@@ -52,5 +53,17 @@ describe("permissions configuration", () => {
     // Auditor can view audit logs and run reconciliations
     expect(ROLE_PERMISSIONS.ACCOUNTS_AUDIT.has("audit:view")).toBe(true);
     expect(ROLE_PERMISSIONS.ACCOUNTS_AUDIT.has("reconciliation:run")).toBe(true);
+  });
+
+  it("canUploadDocuments and canReprocessDocuments align with canonical roles", () => {
+    expect(canUploadDocuments("FINANCE_EXECUTIVE")).toBe(true);
+    expect(canUploadDocuments("FINANCE_MANAGER")).toBe(true);
+    expect(canUploadDocuments("SYSTEM_ADMIN")).toBe(true);
+    expect(canUploadDocuments("ACCOUNTS_AUDIT")).toBe(false);
+
+    expect(canReprocessDocuments("FINANCE_EXECUTIVE")).toBe(true);
+    expect(canReprocessDocuments("FINANCE_MANAGER")).toBe(true);
+    expect(canReprocessDocuments("SYSTEM_ADMIN")).toBe(true);
+    expect(canReprocessDocuments("ACCOUNTS_AUDIT")).toBe(false);
   });
 });

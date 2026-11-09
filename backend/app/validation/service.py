@@ -5,7 +5,7 @@ from decimal import Decimal
 from typing import Optional
 import uuid
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete, select, update
 from sqlalchemy.orm import Session
 
 from app.core.config import Settings, settings as default_settings
@@ -70,14 +70,68 @@ def find_duplicate_document_ids(
 
 
 def determine_review_status(validation_items: list[ValidationItem]) -> str:
-    """Return ReviewStatus value based on validation results: any FAILED item (ERROR, WARNING, duplicate, etc.) => needs_review."""
+    """Return ReviewStatus value based on validation results:
+    - Empty validation items => pending (not yet evaluated)
+    - Any FAILED item (ERROR, WARNING, INFO, duplicate, etc.) => needs_review
+    - Any SKIPPED item of ERROR/WARNING severity (missing prerequisite math field) => needs_review
+    - Otherwise (all rules PASSED, or only non-applicable INFO checks like OCR on native text were SKIPPED) => not_required
+    """
+    if not validation_items:
+        return ReviewStatus.PENDING.value
+
     has_any_failed = any(
         item.status == ValidationStatus.FAILED.value
         for item in validation_items
     )
     if has_any_failed:
         return ReviewStatus.NEEDS_REVIEW.value
-    return ReviewStatus.PENDING.value
+
+    has_skipped_critical = any(
+        item.status == ValidationStatus.SKIPPED.value
+        and item.severity in (ValidationSeverity.ERROR.value, ValidationSeverity.WARNING.value)
+        for item in validation_items
+    )
+    if has_skipped_critical:
+        return ReviewStatus.NEEDS_REVIEW.value
+
+    return ReviewStatus.NOT_REQUIRED.value
+
+
+def sync_legacy_pending_review_statuses(session: Session) -> int:
+    """Upgrade parsed documents stuck in 'pending' review_status whose existing validation_results all passed."""
+    has_validations = (
+        select(ValidationResult.id)
+        .where(ValidationResult.document_id == Document.id)
+        .exists()
+    )
+    has_blocking_issue = (
+        select(ValidationResult.id)
+        .where(
+            ValidationResult.document_id == Document.id,
+            (ValidationResult.status == ValidationStatus.FAILED.value)
+            | (
+                (ValidationResult.status == ValidationStatus.SKIPPED.value)
+                & ValidationResult.severity.in_(
+                    [ValidationSeverity.ERROR.value, ValidationSeverity.WARNING.value]
+                )
+            ),
+        )
+        .exists()
+    )
+    stmt = (
+        update(Document)
+        .where(
+            Document.status == "parsed",
+            Document.review_status == ReviewStatus.PENDING.value,
+            has_validations,
+            ~has_blocking_issue,
+        )
+        .values(review_status=ReviewStatus.NOT_REQUIRED.value)
+    )
+    result = session.execute(stmt)
+    if result.rowcount:
+        session.commit()
+    return int(result.rowcount or 0)
 
 
 def run_invoice_validation(

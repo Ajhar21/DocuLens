@@ -111,9 +111,9 @@ export const REVIEW_STATUS_META: Record<ReviewStatus, StatusPresentation> = {
   not_required: {
     label: "Review Not Required",
     description: "Automated checks passed; manual review bypassed",
-    icon: MinusCircle,
+    icon: CheckCircle2,
     badgeClassName:
-      "border-zinc-500/25 bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400",
+      "border-teal-500/30 bg-teal-50 text-teal-800 dark:bg-teal-950/40 dark:text-teal-300",
   },
 };
 

@@ -41,6 +41,7 @@ from app.services.storage import (
     StorageValidationError,
     storage_service,
 )
+from app.validation.service import sync_legacy_pending_review_statuses
 
 logger = logging.getLogger(__name__)
 
@@ -234,6 +235,7 @@ def list_documents(
 ) -> DocumentPage:
     status_val = normalize_document_status_filter(status_filter)
     review_val = normalize_review_status_filter(review_status_filter)
+    sync_legacy_pending_review_statuses(db)
     docs, total = document_repo.list_visible_documents(
         db,
         current_user,
@@ -266,6 +268,7 @@ def get_document_detail(
     document_id: uuid.UUID,
     current_user: User,
 ) -> DocumentDetailRead:
+    sync_legacy_pending_review_statuses(db)
     doc = get_document(db, document_id, current_user)
     all_jobs = document_repo.get_document_jobs(db, document_id)
     latest_job = all_jobs[0] if all_jobs else None

@@ -4,6 +4,7 @@ import {
   FileText,
   GitCompare,
   Search,
+  Users,
   type LucideIcon,
 } from "lucide-react";
 import { NavLink } from "react-router-dom";
@@ -41,6 +42,12 @@ const NAV_ITEMS: readonly NavItem[] = [
     to: "/search",
     icon: Search,
     permission: "search:use",
+  },
+  {
+    label: "Users & Access",
+    to: "/admin/users",
+    icon: Users,
+    permission: "user:manage",
   },
 ];
 

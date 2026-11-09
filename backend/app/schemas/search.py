@@ -37,7 +37,7 @@ class SearchHit(BaseModel):
     invoice: Optional[SearchInvoiceSummary] = None
     snippet: Optional[str] = None
     score: float
-    match_type: Literal["KEYWORD", "SEMANTIC", "BOTH"]
+    match_type: Literal["KEYWORD", "SEMANTIC", "BOTH", "FILTER"]
 
 
 class SearchResponse(BaseModel):

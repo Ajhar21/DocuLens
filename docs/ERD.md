@@ -6,6 +6,7 @@ Based on PRD section 5.10 (14 tables). Render with any Mermaid viewer (GitHub, V
 erDiagram
     roles ||--o{ users : "role_id"
     users ||--o{ refresh_tokens : "user_id"
+    users ||--o{ user_action_tokens : "user_id"
     users ||--o{ documents : "uploaded_by"
     users ||--o{ document_corrections : "corrected_by"
     users ||--o{ reconciliation_jobs : "initiated_by"
@@ -34,8 +35,24 @@ erDiagram
         text password_hash
         uuid role_id FK
         bool is_active
+        bool must_change_password
+        int token_version
+        timestamptz last_login_at
+        uuid invited_by FK
+        timestamptz deactivated_at
         timestamptz created_at
         timestamptz updated_at
+    }
+    user_action_tokens {
+        uuid id PK
+        uuid user_id FK
+        text token_type "INVITE | PASSWORD_RESET"
+        text token_hash UK
+        uuid created_by FK
+        timestamptz expires_at
+        timestamptz used_at
+        timestamptz revoked_at
+        timestamptz created_at
     }
     refresh_tokens {
         uuid id PK

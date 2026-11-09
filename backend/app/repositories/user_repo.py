@@ -4,11 +4,18 @@ from datetime import datetime
 from typing import Optional
 import uuid
 
-from sqlalchemy import select, update
+from sqlalchemy import func, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session, joinedload
 
-from app.models.user import ROLE_DESCRIPTIONS, RefreshToken, Role, RoleName, User
+from app.models.user import (
+    ROLE_DESCRIPTIONS,
+    RefreshToken,
+    Role,
+    RoleName,
+    User,
+    UserActionToken,
+)
 
 
 def ensure_roles_seeded(db: Session) -> dict[str, Role]:
@@ -69,6 +76,16 @@ def list_users(
         stmt = stmt.where(User.is_active == is_active)
     stmt = stmt.order_by(User.created_at.asc(), User.id.asc())
     return list(db.execute(stmt).scalars().all())
+
+
+def count_system_admins(db: Session) -> int:
+    """Return total number of SYSTEM_ADMIN user rows in the database."""
+    stmt = (
+        select(func.count(User.id))
+        .join(Role, User.role_id == Role.id)
+        .where(Role.name == RoleName.SYSTEM_ADMIN.value)
+    )
+    return int(db.execute(stmt).scalar_one() or 0)
 
 
 def lock_active_system_admin_ids(db: Session) -> list[uuid.UUID]:
@@ -148,4 +165,60 @@ def revoke_user_refresh_tokens(
     )
     result = db.execute(stmt)
     return int(result.rowcount or 0)
+
+
+def create_action_token(
+    db: Session,
+    *,
+    user_id: uuid.UUID,
+    token_type: str,
+    token_hash: str,
+    expires_at: datetime,
+    created_by: Optional[uuid.UUID] = None,
+) -> UserActionToken:
+    row = UserActionToken(
+        user_id=user_id,
+        token_type=token_type,
+        token_hash=token_hash,
+        expires_at=expires_at,
+        created_by=created_by,
+    )
+    db.add(row)
+    db.flush()
+    return row
+
+
+def revoke_unused_action_tokens(
+    db: Session,
+    *,
+    user_id: uuid.UUID,
+    token_type: str,
+    now: datetime,
+) -> int:
+    stmt = (
+        update(UserActionToken)
+        .where(
+            UserActionToken.user_id == user_id,
+            UserActionToken.token_type == token_type,
+            UserActionToken.used_at.is_(None),
+            UserActionToken.revoked_at.is_(None),
+        )
+        .values(revoked_at=now)
+    )
+    result = db.execute(stmt)
+    return int(result.rowcount or 0)
+
+
+def get_action_token_for_update(
+    db: Session,
+    *,
+    token_hash: str,
+    token_type: Optional[str] = None,
+) -> Optional[UserActionToken]:
+    stmt = select(UserActionToken).where(UserActionToken.token_hash == token_hash)
+    if token_type is not None:
+        stmt = stmt.where(UserActionToken.token_type == token_type)
+    stmt = stmt.with_for_update(of=UserActionToken)
+    return db.execute(stmt).scalar_one_or_none()
+
 

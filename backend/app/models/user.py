@@ -39,6 +39,11 @@ ROLE_DESCRIPTIONS: dict[str, str] = {
 }
 
 
+class ActionTokenType(str, enum.Enum):
+    INVITE = "INVITE"
+    PASSWORD_RESET = "PASSWORD_RESET"
+
+
 class Role(Base):
     __tablename__ = "roles"
     __table_args__ = (
@@ -79,6 +84,31 @@ class User(Base):
         nullable=False,
     )
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    must_change_password: Mapped[bool] = mapped_column(
+        Boolean,
+        default=False,
+        server_default=sa.text("false"),
+        nullable=False,
+    )
+    token_version: Mapped[int] = mapped_column(
+        sa.Integer,
+        default=0,
+        server_default=sa.text("0"),
+        nullable=False,
+    )
+    last_login_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
+    invited_by: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    deactivated_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         default=lambda: datetime.now(timezone.utc),
@@ -104,6 +134,12 @@ class User(Base):
         back_populates="user",
         cascade="all, delete-orphan",
     )
+    action_tokens: Mapped[list["UserActionToken"]] = relationship(
+        "UserActionToken",
+        back_populates="user",
+        foreign_keys="UserActionToken.user_id",
+        cascade="all, delete-orphan",
+    )
 
     @property
     def role(self) -> str:
@@ -118,6 +154,14 @@ class User(Base):
     @property
     def name(self) -> str:
         return self.full_name
+
+    @property
+    def status(self) -> str:
+        if self.is_active:
+            return "active"
+        if self.deactivated_at is None and self.last_login_at is None and self.invited_by is not None:
+            return "invited"
+        return "deactivated"
 
 
 class RefreshToken(Base):
@@ -152,3 +196,48 @@ class RefreshToken(Base):
     )
 
     user: Mapped[User] = relationship("User", back_populates="refresh_tokens")
+
+
+class UserActionToken(Base):
+    __tablename__ = "user_action_tokens"
+    __table_args__ = (
+        CheckConstraint(
+            "token_type IN ('INVITE', 'PASSWORD_RESET')",
+            name="ck_user_action_tokens_type",
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        primary_key=True,
+        default=uuid.uuid4,
+        server_default=sa.text("gen_random_uuid()"),
+    )
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        index=True,
+        nullable=False,
+    )
+    token_type: Mapped[str] = mapped_column(String(32), nullable=False)
+    token_hash: Mapped[str] = mapped_column(String(128), unique=True, nullable=False)
+    created_by: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    used_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    revoked_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        server_default=sa.text("now()"),
+        nullable=False,
+    )
+
+    user: Mapped[User] = relationship(
+        "User",
+        back_populates="action_tokens",
+        foreign_keys=[user_id],
+    )

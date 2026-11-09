@@ -3,6 +3,8 @@ import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { Toaster } from "@/components/ui/sonner";
 import { AuthProvider } from "@/features/auth/AuthProvider";
+import { AcceptInvitePage } from "@/features/auth/AcceptInvitePage";
+import { ChangePasswordPage } from "@/features/auth/ChangePasswordPage";
 import { LoginPage } from "@/features/auth/LoginPage";
 import { ProtectedRoute } from "@/features/auth/ProtectedRoute";
 import { DocumentDetailPage } from "@/features/documents/detail/DocumentDetailPage";
@@ -13,6 +15,7 @@ import { ReconciliationNewPage } from "@/features/reconciliation/ReconciliationN
 import { ReviewDetailPage } from "@/features/review/ReviewDetailPage";
 import { ReviewQueuePage } from "@/features/review/ReviewQueuePage";
 import { SearchPage } from "@/features/search/SearchPage";
+import { AdminUsersPage } from "@/features/users/AdminUsersPage";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -30,6 +33,15 @@ export function App() {
         <AuthProvider>
           <Routes>
             <Route path="/login" element={<LoginPage />} />
+            <Route path="/accept-invite" element={<AcceptInvitePage />} />
+            <Route
+              path="/change-password"
+              element={
+                <ProtectedRoute>
+                  <ChangePasswordPage />
+                </ProtectedRoute>
+              }
+            />
             <Route
               element={
                 <ProtectedRoute>
@@ -85,6 +97,14 @@ export function App() {
                 element={
                   <ProtectedRoute requiredPermission="search:use">
                     <SearchPage />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/admin/users"
+                element={
+                  <ProtectedRoute requiredPermission="user:manage">
+                    <AdminUsersPage />
                   </ProtectedRoute>
                 }
               />

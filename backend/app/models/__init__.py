@@ -1,4 +1,12 @@
-from app.models.user import RefreshToken, Role, RoleName, User, UserRole
+from app.models.user import (
+    ActionTokenType,
+    RefreshToken,
+    Role,
+    RoleName,
+    User,
+    UserActionToken,
+    UserRole,
+)
 from app.models.audit import AuditLog
 from app.models.document import Document, DocumentStatus, ReviewStatus
 from app.models.job import ProcessingJob, JobStatus, JobType
@@ -21,6 +29,8 @@ __all__ = [
     "User",
     "UserRole",
     "RefreshToken",
+    "ActionTokenType",
+    "UserActionToken",
     "AuditLog",
     "Document",
     "DocumentStatus",

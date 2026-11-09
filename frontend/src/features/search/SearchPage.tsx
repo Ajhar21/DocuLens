@@ -47,25 +47,61 @@ export function SearchPage() {
 
   // Local debounced input state for typing feel
   const [localQ, setLocalQ] = useState(rawQ);
-  const [filtersOpen, setFiltersOpen] = useState(false);
+  const [localSupplier, setLocalSupplier] = useState(rawSupplier);
+  const [localAmountMin, setLocalAmountMin] = useState(rawAmountMin);
+  const [localAmountMax, setLocalAmountMax] = useState(rawAmountMax);
+  const [filtersOpen, setFiltersOpen] = useState(() =>
+    Boolean(
+      rawSupplier ||
+        rawDateFrom ||
+        rawDateTo ||
+        rawAmountMin ||
+        rawAmountMax ||
+        rawReviewStatus,
+    ),
+  );
   const [expandedRankingDocId, setExpandedRankingDocId] = useState<string | null>(null);
 
-  // Sync local input if URL changes externally (e.g. back button)
+  // Sync local inputs if URL changes externally (e.g. back button or Clear Filters)
   useEffect(() => {
     setLocalQ(rawQ);
   }, [rawQ]);
 
-  // Debounce query param updates to URL (350ms)
+  useEffect(() => {
+    setLocalSupplier(rawSupplier);
+  }, [rawSupplier]);
+
+  useEffect(() => {
+    setLocalAmountMin(rawAmountMin);
+  }, [rawAmountMin]);
+
+  useEffect(() => {
+    setLocalAmountMax(rawAmountMax);
+  }, [rawAmountMax]);
+
+  // Debounce text/number filter & query param updates to URL (350ms)
   useEffect(() => {
     const timer = setTimeout(() => {
-      if (localQ !== rawQ) {
+      if (
+        localQ !== rawQ ||
+        localSupplier !== rawSupplier ||
+        localAmountMin !== rawAmountMin ||
+        localAmountMax !== rawAmountMax
+      ) {
         setSearchParams((prev) => {
           const next = new URLSearchParams(prev);
-          if (localQ.trim()) {
-            next.set("q", localQ.trim());
-          } else {
-            next.delete("q");
-          }
+          if (localQ.trim()) next.set("q", localQ.trim());
+          else next.delete("q");
+
+          if (localSupplier.trim()) next.set("supplier_name", localSupplier.trim());
+          else next.delete("supplier_name");
+
+          if (localAmountMin.trim()) next.set("amount_min", localAmountMin.trim());
+          else next.delete("amount_min");
+
+          if (localAmountMax.trim()) next.set("amount_max", localAmountMax.trim());
+          else next.delete("amount_max");
+
           next.set("page", "1");
           return next;
         });
@@ -73,7 +109,17 @@ export function SearchPage() {
     }, 350);
 
     return () => clearTimeout(timer);
-  }, [localQ, rawQ, setSearchParams]);
+  }, [
+    localQ,
+    rawQ,
+    localSupplier,
+    rawSupplier,
+    localAmountMin,
+    rawAmountMin,
+    localAmountMax,
+    rawAmountMax,
+    setSearchParams,
+  ]);
 
   // Update specific URL search param
   const updateParam = (key: string, value: string | undefined) => {
@@ -90,7 +136,18 @@ export function SearchPage() {
   };
 
   const offset = (rawPage - 1) * PAGE_SIZE;
-  const isQueryActive = Boolean(rawQ.trim());
+
+  const activeFiltersCount = useMemo(() => {
+    let count = 0;
+    if (rawSupplier.trim()) count++;
+    if (rawDateFrom || rawDateTo) count++;
+    if (rawAmountMin || rawAmountMax) count++;
+    if (rawReviewStatus) count++;
+    return count;
+  }, [rawSupplier, rawDateFrom, rawDateTo, rawAmountMin, rawAmountMax, rawReviewStatus]);
+
+  const hasTextQuery = Boolean(rawQ.trim());
+  const isSearchActive = hasTextQuery || activeFiltersCount > 0;
 
   // Execute query with TanStack Query
   const { data, isLoading, isError, error, refetch } = useQuery({
@@ -111,7 +168,7 @@ export function SearchPage() {
     ],
     queryFn: () => {
       return searchDocuments({
-        q: rawQ.trim(),
+        q: rawQ.trim() || undefined,
         mode: rawMode,
         supplier_name: rawSupplier || undefined,
         date_from: rawDateFrom || undefined,
@@ -123,7 +180,7 @@ export function SearchPage() {
         offset,
       });
     },
-    enabled: isQueryActive,
+    enabled: isSearchActive,
     staleTime: 30_000,
   });
 
@@ -131,16 +188,10 @@ export function SearchPage() {
   const totalPages = Math.max(1, Math.ceil(totalHits / PAGE_SIZE));
   const hits: SearchHit[] = data?.hits ?? [];
 
-  const activeFiltersCount = useMemo(() => {
-    let count = 0;
-    if (rawSupplier) count++;
-    if (rawDateFrom || rawDateTo) count++;
-    if (rawAmountMin || rawAmountMax) count++;
-    if (rawReviewStatus) count++;
-    return count;
-  }, [rawSupplier, rawDateFrom, rawDateTo, rawAmountMin, rawAmountMax, rawReviewStatus]);
-
   const clearAllFilters = () => {
+    setLocalSupplier("");
+    setLocalAmountMin("");
+    setLocalAmountMax("");
     setSearchParams(() => {
       const next = new URLSearchParams();
       if (rawQ.trim()) next.set("q", rawQ.trim());
@@ -248,8 +299,8 @@ export function SearchPage() {
                   <Input
                     id="filter-supplier"
                     placeholder="e.g. Acme, Dell..."
-                    value={rawSupplier}
-                    onChange={(e) => updateParam("supplier_name", e.target.value)}
+                    value={localSupplier}
+                    onChange={(e) => setLocalSupplier(e.target.value)}
                     className="h-8 text-xs"
                   />
                 </div>
@@ -270,6 +321,7 @@ export function SearchPage() {
                     <option value="pending">Pending</option>
                     <option value="in_review">In Review</option>
                     <option value="corrected">Corrected</option>
+                    <option value="not_required">Review Not Required</option>
                     <option value="approved">Approved</option>
                     <option value="rejected">Rejected</option>
                   </select>
@@ -303,15 +355,15 @@ export function SearchPage() {
                     <Input
                       type="number"
                       placeholder="Min"
-                      value={rawAmountMin}
-                      onChange={(e) => updateParam("amount_min", e.target.value)}
+                      value={localAmountMin}
+                      onChange={(e) => setLocalAmountMin(e.target.value)}
                       className="h-8 text-xs"
                     />
                     <Input
                       type="number"
                       placeholder="Max"
-                      value={rawAmountMax}
-                      onChange={(e) => updateParam("amount_max", e.target.value)}
+                      value={localAmountMax}
+                      onChange={(e) => setLocalAmountMax(e.target.value)}
                       className="h-8 text-xs"
                     />
                   </div>
@@ -322,14 +374,23 @@ export function SearchPage() {
         </CardContent>
       </Card>
 
-      {/* Empty State: No Query Entered */}
-      {!isQueryActive && (
+      {/* Empty State: Neither Query Nor Filter Entered */}
+      {!isSearchActive && (
         <EmptyState
           icon={SearchIcon}
-          title="Enter a query to search"
-          description="Search by keyword, semantic similarity, or hybrid rank fusion across invoices and document text."
+          title="Enter a query or apply a filter to search"
+          description="Search by keyword, semantic similarity, or hybrid rank fusion, or open Filters above to browse by supplier, status, date, or amount."
           action={
             <div className="flex flex-col sm:flex-row items-center gap-3">
+              <Button
+                type="button"
+                variant="default"
+                size="sm"
+                onClick={() => setFiltersOpen(true)}
+              >
+                <SlidersHorizontal className="mr-1.5 h-3.5 w-3.5" />
+                Filter Documents
+              </Button>
               <Button asChild variant="outline" size="sm">
                 <Link to="/documents">Browse Document List</Link>
               </Button>
@@ -342,12 +403,19 @@ export function SearchPage() {
       )}
 
       {/* Loading State */}
-      {isQueryActive && isLoading && (
-        <LoadingState message={`Searching documents in ${rawMode} mode…`} lines={5} />
+      {isSearchActive && isLoading && (
+        <LoadingState
+          message={
+            hasTextQuery
+              ? `Searching documents in ${rawMode} mode…`
+              : "Filtering documents by metadata…"
+          }
+          lines={5}
+        />
       )}
 
       {/* Error State */}
-      {isQueryActive && isError && (
+      {isSearchActive && isError && (
         <ErrorState
           title="Search Failed"
           message={
@@ -362,21 +430,38 @@ export function SearchPage() {
       )}
 
       {/* Results Section */}
-      {isQueryActive && !isLoading && !isError && (
+      {isSearchActive && !isLoading && !isError && (
         <>
           {/* Summary Bar */}
           <div className="flex items-center justify-between text-xs text-muted-foreground px-1">
             <span>
-              Found <strong>{totalHits}</strong> matching document{totalHits === 1 ? "" : "s"} for &ldquo;{rawQ}&rdquo; in {rawMode} mode
+              {hasTextQuery ? (
+                <>
+                  Found <strong>{totalHits}</strong> matching document
+                  {totalHits === 1 ? "" : "s"} for &ldquo;{rawQ}&rdquo; in {rawMode} mode
+                </>
+              ) : (
+                <>
+                  Found <strong>{totalHits}</strong> matching document
+                  {totalHits === 1 ? "" : "s"} with{" "}
+                  <strong>
+                    {activeFiltersCount} active filter{activeFiltersCount === 1 ? "" : "s"}
+                  </strong>
+                </>
+              )}
             </span>
           </div>
 
-          {/* Empty State: Query returned zero results */}
+          {/* Empty State: Query/Filters returned zero results */}
           {hits.length === 0 ? (
             <EmptyState
               icon={SearchIcon}
               title="No Results Found"
-              description={`We couldn't find any documents matching '${rawQ}'. Try adjusting your search query, switching to Hybrid mode, or loosening filters.`}
+              description={
+                hasTextQuery
+                  ? `We couldn't find any documents matching '${rawQ}'. Try adjusting your search query, switching to Hybrid mode, or loosening filters.`
+                  : "No documents matched the selected metadata filters. Try broadening your supplier, date, amount, or status filters."
+              }
               action={
                 activeFiltersCount > 0 ? (
                   <Button variant="outline" size="sm" onClick={clearAllFilters}>
@@ -397,7 +482,9 @@ export function SearchPage() {
                     ? "border-indigo-500/40 bg-indigo-50 text-indigo-800 dark:bg-indigo-950/40 dark:text-indigo-300"
                     : hit.match_type === "SEMANTIC"
                       ? "border-emerald-500/40 bg-emerald-50 text-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300"
-                      : "border-amber-500/40 bg-amber-50 text-amber-800 dark:bg-amber-950/40 dark:text-amber-300";
+                      : hit.match_type === "FILTER"
+                        ? "border-sky-500/40 bg-sky-50 text-sky-800 dark:bg-sky-950/40 dark:text-sky-300"
+                        : "border-amber-500/40 bg-amber-50 text-amber-800 dark:bg-amber-950/40 dark:text-amber-300";
 
                 return (
                   <Card

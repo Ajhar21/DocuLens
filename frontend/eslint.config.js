@@ -5,7 +5,7 @@ import globals from "globals";
 import tseslint from "typescript-eslint";
 
 export default tseslint.config(
-  { ignores: ["dist", "node_modules"] },
+  { ignores: ["dist", "node_modules", "playwright-report", "test-results"] },
   {
     extends: [js.configs.recommended, ...tseslint.configs.recommended],
     files: ["**/*.{ts,tsx}"],
@@ -28,6 +28,17 @@ export default tseslint.config(
     // shadcn/ui generated primitives co-export variants with components by design.
     files: ["src/components/ui/**/*.{ts,tsx}"],
     rules: { "react-refresh/only-export-components": "off" },
+  },
+  {
+    // Playwright E2E fixtures use `use()` which is not a React hook.
+    files: ["e2e/**/*.{ts,tsx}", "playwright.config.ts"],
+    languageOptions: {
+      globals: { ...globals.browser, ...globals.node },
+    },
+    rules: {
+      "react-hooks/rules-of-hooks": "off",
+      "react-refresh/only-export-components": "off",
+    },
   },
 );
 

@@ -23,7 +23,10 @@ router = APIRouter(prefix="/search", tags=["search"])
     summary="Execute keyword, semantic, or hybrid search across documents",
 )
 def search_documents(
-    q: str = Query(..., min_length=1, description="Search query string"),
+    q: Optional[str] = Query(
+        None,
+        description="Search query string (optional when metadata filters are applied)",
+    ),
     mode: str = Query(
         "hybrid",
         description="Search mode: keyword | semantic | hybrid",
